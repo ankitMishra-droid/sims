@@ -4,6 +4,7 @@ from sqlalchemy import (
     DateTime,
     String,
     Float,
+    Boolean,
     ForeignKey,
     func
 )
@@ -87,6 +88,10 @@ class Product(base):
         Integer,
         ForeignKey("suppliers.id"),
         nullable=True
+    )
+
+    is_active = Column(
+        Boolean, default=True
     )
 
     # Many Products -> One Supplier

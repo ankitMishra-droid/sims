@@ -7,7 +7,7 @@ from ..database import get_db
 router = APIRouter(prefix="/api/sales", tags=['Sales'])
 
 # Sales Creation
-@router.post("/", response_model=schemas.SaleOut)
+@router.post("/", response_model=schemas.SaleResponse)
 def create_sale(sale: schemas.SaleCreate, db: Session = Depends(get_db)):
     product = db.query(models.Product).filter(models.Product.id == sale.product_id).first()
 
@@ -45,14 +45,27 @@ def create_sale(sale: schemas.SaleCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_sale)
 
-    return db_sale
+    return {
+        "data": db_sale,
+        "message": "product sold"
+    }
 
 # Fetch all sales data
-@router.get("/", response_model=list[schemas.SaleOut])
+@router.get("/", response_model=list[schemas.SaleResponse])
 def get_sales(db: Session = Depends(get_db)):
-    return db.query(models.Sale).order_by(models.Sale.sales_date.Desc()).all()
+    sale = db.query(models.Sale).order_by(models.Sale.sales_date.desc()).all()
+
+    return {
+        "data": sale,
+        "message": "all product sales data fetched"
+    }
 
 # fetch specific sale product
-@router.get("/product/{product_id}", response_model=schemas.SaleOut)
+@router.get("/product/{product_id}", response_model=schemas.SaleResponse)
 def get_sale_by_product(product_id: int, db: Session = Depends(get_db)):
-    return db.query(models.sale).filter(models.Sale.product_id == product_id).order_by(models.Sale.sales_date.Desc()).all()
+    sale = db.query(models.Sale).filter(models.Sale.product_id == product_id).order_by(models.Sale.sales_date.desc()).first()
+
+    return {
+        "data": sale,
+        "message": f"product_id - {sale.product_id} fetched"
+    }

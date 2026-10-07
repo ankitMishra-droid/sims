@@ -37,10 +37,17 @@ class ProductOut(BaseModel):
     current_stock: int
     reorder_level: int
     supplier_id: int | None
+    is_active: bool
 
     class Config:
         from_attributes = True
 
+class ProductResponse(BaseModel):
+    data: ProductOut
+    message: str
+
+    class Config:
+        from_attributes = True
 
 class PurchaseOrderCreate(BaseModel):
     supplier_id: int
@@ -86,6 +93,13 @@ class SaleOut(BaseModel):
     quantity_sold: int
     selling_price: float
     revenue: float
+
+    class Config:
+        from_attributes = True
+
+class SaleResponse(BaseModel):
+    data: SaleOut
+    message: str
 
     class Config:
         from_attributes = True

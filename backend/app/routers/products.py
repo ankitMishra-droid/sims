@@ -7,7 +7,7 @@ from ..database import get_db
 router = APIRouter(prefix="/api/products", tags=["Products"])
 
 # Create Product
-@router.post("/", response_model=schemas.ProductOut)
+@router.post("/", response_model=schemas.ProductResponse)
 def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)):
     existing = db.query(models.Product).filter(models.Product.sku == product.sku).first()
 
@@ -30,21 +30,21 @@ def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)
 
         db.commit()
 
-    return db_product
+    return {"data": db_product, "message": "Product added successfully"}
 
 # Fetch product
-@router.get("/{product_id}", response_model=schemas.ProductOut)
+@router.get("/{product_id}", response_model=schemas.ProductResponse)
 def get_product(product_id: int, db: Session = Depends(get_db)):
     # find product by id
-    product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    product = db.query(models.Product).filter(models.Product.id == product_id, models.Product.is_active == True).first()
 
     if not product:
         raise HTTPException(status_code=404, detail="product not found")
 
-    return product
+    return {"data": product, "message": "product fetched successfully"}
 
 # Update Product
-@router.put("/{product_id}", response_model=schemas.ProductOut)
+@router.put("/{product_id}", response_model=schemas.ProductResponse)
 def update_product(product_id: int, updated: schemas.ProductCreate, db: Session = Depends(get_db)):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
 
@@ -56,17 +56,33 @@ def update_product(product_id: int, updated: schemas.ProductCreate, db: Session 
 
     db.commit()
     db.refresh(product)
-    return product
+    return {"data": product, "message": "product updated successfully"}
 
-# Delete Product
-@router.delete("/{product_id}")
-def delete_product(product_id: int, db: Session = Depends(get_db)):
+# Deactivate Product
+@router.patch("/deactivate/{product_id}")
+def deactivate_product(product_id: int, db: Session = Depends(get_db)):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
 
     if not product:
         raise HTTPException(status_code=404, detail="product not found")
 
-    db.delete(product)
+    # db.delete(product)
+    product.is_active = False
     db.commit()
+    db.refresh(product)
 
-    return {"detail": "Product Deleted"}
+    return {"data": product, "message": "Product Deactivated"}
+
+# Activate Product
+@router.patch("/activate/{product_id}")
+def activate_product(product_id: int, db: Session = Depends(get_db)):
+    product = db.query(models.Product).filter(models.Product.id == product_id).first()
+
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    product.is_active = True
+    db.commit()
+    db.refresh(product)
+
+    return {"data": product, "message": "Product Activated"}
