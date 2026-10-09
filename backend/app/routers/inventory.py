@@ -11,10 +11,7 @@ router = APIRouter(
 )
 
 
-# ============================================================
 # Add Stock
-# ============================================================
-
 @router.post("/stock-in")
 def add_stock(
     stock: schemas.StockInCreate,
@@ -63,10 +60,7 @@ def add_stock(
     }
 
 
-# ============================================================
 # Get Inventory History
-# ============================================================
-
 @router.get(
     "/logs/{product_id}",
     response_model=list[schemas.InventoryLogOut]
@@ -98,10 +92,7 @@ def get_inventory_logs(
     return get_history
 
 
-# ============================================================
 # Low Stock Products
-# ============================================================
-
 @router.get("/low-stock", response_model=schemas.LowStockResponse)
 def get_low_stock_products(db: Session = Depends(get_db)):
 

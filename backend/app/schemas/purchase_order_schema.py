@@ -1,34 +1,63 @@
-from datetime import datetime
-from pydantic import BaseModel
+from datetime import date, datetime
+from enum import Enum
 
+from pydantic import BaseModel, ConfigDict, Field
+
+# purchase order status enum
+class PurchaseOrderStatus(str, Enum):
+    DRAFT = "DRAFT"
+    SENT = "SENT"
+    PARTIALLY_RECEIVED = "PARTIALLY_RECEIVED"
+    RECEIVED = "RECEIVED"
+    CANCELLED = "CANCELLED"
+
+# purchase order item create
+class PurchaseOrderItemCreate(BaseModel):
+    product_id: int
+    ordered_quantity: int = Field(gt=0)
+    unit_cost: float = Field(ge=0)
+
+# purchase order create
 class PurchaseOrderCreate(BaseModel):
     supplier_id: int
-    order_date: datetime
-    expected_delivery_date: datetime
-    status: str
+    expected_delivery_date: date | None = None
+    notes: str | None = None
 
-class PurchaseOrderOut(BaseModel):
-    po_id: int
-    supplier_id: int
-    order_date: datetime
-    expected_delivery_date: datetime
-    status: str
+    items: list[PurchaseOrderItemCreate] = Field(
+        min_length=1
+    )
 
-    class Config:
-        from_attributes = True
-
-class PurchaseOrderItemCreate(BaseModel):
-    po_id: int
-    product_id: int
-    ordered_quantity: int
-    received_quantity: float
-
+# purchase order item response
 class PurchaseOrderItemOut(BaseModel):
     id: int
-    po_id: int
     product_id: int
     ordered_quantity: int
-    received_quantity: float
+    received_quantity: int
+    unit_cost: float
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+# purchase order response
+class PurchaseOrderOut(BaseModel):
+    id: int
+    supplier_id: int
+    status: PurchaseOrderStatus
+    order_date: datetime
+    expected_delivery_date: datetime | None = None
+    notes: str | None = None
+
+    items: list[PurchaseOrderItemOut]
+
+    model_config = ConfigDict(from_attributes=True)
+
+# Receive Purchase Order Item
+class ReceiveItem(BaseModel):
+    purchase_order_item_id: int
+    received_quantity: int = Field(gt=0)
+
+
+# Receive Purchase Order
+class ReceivePurchaseOrder(BaseModel):
+    items: list[ReceiveItem] = Field(
+        min_length=1
+    )

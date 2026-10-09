@@ -56,6 +56,9 @@ def create_sale(sale: schemas.SaleCreate, db: Session = Depends(get_db)):
 def get_sales(db: Session = Depends(get_db)):
     sale = db.query(models.Sale).order_by(models.Sale.sales_date.desc()).all()
 
+    if not sale:
+        raise HTTPException(status_code=404, detail="sale product not found")
+
     return {
         "data": sale,
         "message": "all product sales data fetched"
@@ -65,6 +68,48 @@ def get_sales(db: Session = Depends(get_db)):
 @router.get("/product/{product_id}", response_model=schemas.SaleResponse)
 def get_sale_by_product(product_id: int, db: Session = Depends(get_db)):
     sale = db.query(models.Sale).filter(models.Sale.product_id == product_id).order_by(models.Sale.sales_date.desc()).first()
+
+    if not sale:
+        raise HTTPException(status_code=404, detail="sale product not found")
+
+    return {
+        "data": sale,
+        "message": f"sale product fetched"
+    }
+
+# fetch sales data for a specific date
+@router.get("/date/{date}", response_model=schemas.SaleListResponse)
+def get_sales_by_date(date: str, db: Session = Depends(get_db)):
+    sale = db.query(models.Sale).filter(models.Sale.sales_date == date).all()
+
+    if not sale:
+        raise HTTPException(status_code=404, detail="sale product not found")
+
+    return {
+        "data": sale,
+        "message": f"sale product fetched"
+    }
+
+# fetch sales data for a specific date range
+@router.get("/date-range/", response_model=schemas.SaleListResponse)
+def get_sales_by_date_range(start_date: str, end_date: str, db: Session = Depends(get_db)):
+    sale = db.query(models.Sale).filter(models.Sale.sales_date >= start_date, models.Sale.sales_date <= end_date).all()
+
+    if not sale:
+        raise HTTPException(status_code=404, detail="sale product not found")
+
+    return {
+        "data": sale,
+        "message": f"sale product fetched"
+    }
+
+# fetch sales data for a specific product and date range
+@router.get("/product-date-range/", response_model=schemas.SaleListResponse)
+def get_sales_by_product_and_date_range(product_id: int, start_date: str, end_date: str, db: Session = Depends(get_db)):
+    sale = db.query(models.Sale).filter(models.Sale.product_id == product_id, models.Sale.sales_date >= start_date, models.Sale.sales_date <= end_date).all()
+
+    if not sale:
+        raise HTTPException(status_code=404, detail="sale product not found")
 
     return {
         "data": sale,

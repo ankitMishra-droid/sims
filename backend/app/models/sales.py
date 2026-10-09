@@ -11,10 +11,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from ..database import base
 
-# ============================================================
-# Sale
-# ============================================================
-
+# sales model
 class Sale(base):
     __tablename__ = "sales"
 

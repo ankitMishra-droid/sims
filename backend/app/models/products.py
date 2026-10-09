@@ -11,10 +11,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from ..database import base
 
-# ============================================================
-# Product
-# ============================================================
-
+# product model
 class Product(base):
     __tablename__ = "products"
 
@@ -86,6 +83,6 @@ class Product(base):
 
     # One Product -> Many Purchase Order Items
     purchase_order_items = relationship(
-        "PurchaseOrderItems",
+        "PurchaseOrderItem",
         back_populates="product"
     )

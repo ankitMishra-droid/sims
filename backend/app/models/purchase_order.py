@@ -1,36 +1,26 @@
-import enum
+from datetime import datetime
+from enum import Enum
+
 from sqlalchemy import (
-    Column,
-    Integer,
-    DateTime,
-    String,
-    Float,
-    Boolean,
-    ForeignKey,
-    func
+    Column, DateTime, ForeignKey, Integer, Numeric, String, Text, Enum as SQLEnum
 )
-from sqlalchemy.orm import relationship, Mapped
+from sqlalchemy.orm import relationship
+
 from ..database import base
 
-# ============================================================
-# Purchase Order
-# ============================================================
 
-class EnumStatus(enum.Enum):
-    DRAFT = "Draft"
-    SENT = "Sent"
-    PARTIALLY_RECEIVED = "Partially Received"
-    RECEIVED = "Received"
-    CANCELLED = "Cancelled"
+class PurchaseOrderStatus(str, Enum):
+    DRAFT = "DRAFT"
+    SENT = "SENT"
+    PARTIALLY_RECEIVED = "PARTIALLY_RECEIVED"
+    RECEIVED = "RECEIVED"
+    CANCELLED = "CANCELLED"
+
 
 class PurchaseOrder(base):
     __tablename__ = "purchase_orders"
 
-    po_id = Column(
-        Integer,
-        primary_key=True,
-        index=True
-    )
+    id = Column(Integer, primary_key=True, index=True)
 
     supplier_id = Column(
         Integer,
@@ -38,9 +28,16 @@ class PurchaseOrder(base):
         nullable=False
     )
 
+    status = Column(
+        SQLEnum(PurchaseOrderStatus),
+        nullable=False,
+        default=PurchaseOrderStatus.DRAFT
+    )
+
     order_date = Column(
         DateTime,
-        server_default=func.now()
+        nullable=False,
+        default=datetime.utcnow
     )
 
     expected_delivery_date = Column(
@@ -48,44 +45,25 @@ class PurchaseOrder(base):
         nullable=True
     )
 
-    status = Column(
-        String,
-        default="pending"
-    )
+    notes = Column(Text, nullable=True)
 
-    total_amount = Column(Integer, nullable=False)
+    supplier = relationship("Supplier")
 
-    notes = Column(String, nullable=False)
-
-    # Many Purchase Orders -> One Supplier
-    supplier = relationship(
-        "Supplier",
-        back_populates="purchase_orders"
-    )
-
-    # One Purchase Order -> Many Purchase Order Items
     items = relationship(
-        "PurchaseOrderItems",
-        back_populates="purchase_order"
+        "PurchaseOrderItem",
+        back_populates="purchase_order",
+        cascade="all, delete-orphan"
     )
 
 
-# ============================================================
-# Purchase Order Items
-# ============================================================
-
-class PurchaseOrderItems(base):
+class PurchaseOrderItem(base):
     __tablename__ = "purchase_order_items"
 
-    po_item_id = Column(
-        Integer,
-        primary_key=True,
-        index=True
-    )
+    id = Column(Integer, primary_key=True, index=True)
 
-    po_id = Column(
+    purchase_order_id = Column(
         Integer,
-        ForeignKey("purchase_orders.po_id"),
+        ForeignKey("purchase_orders.id"),
         nullable=False
     )
 
@@ -97,24 +75,23 @@ class PurchaseOrderItems(base):
 
     ordered_quantity = Column(
         Integer,
-        default=0
+        nullable=False
     )
 
     received_quantity = Column(
         Integer,
+        nullable=False,
         default=0
     )
 
-    unit_cost = Column(Integer, nullable=False)
-
-    # Many Purchase Order Items -> One Product
-    product = relationship(
-        "Product",
-        back_populates="purchase_order_items"
+    unit_cost = Column(
+        Numeric(12, 2),
+        nullable=False
     )
 
-    # Many Purchase Order Items -> One Purchase Order
     purchase_order = relationship(
         "PurchaseOrder",
         back_populates="items"
     )
+
+    product = relationship("Product", back_populates="purchase_order_items")

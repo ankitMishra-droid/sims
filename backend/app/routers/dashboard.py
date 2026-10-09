@@ -19,10 +19,15 @@ def dashboard_summary(db: Session = Depends(get_db)):
 
     total_revenue = db.query(func.coalesce(func.sum(models.Sale.revenue), 0)).scalar()
 
+    total_inventory_value = db.query(func.coalesce(func.sum(models.Product.current_stock * models.Product.cost_price), 0)).scalar()
+
+    out_of_stock_products = db.query(models.Product).filter(models.Product.current_stock == 0).count()
+
     return {
         "total_products": total_products,
         "total_stock_units": total_stock,
         "low_stock_products": low_stock_count,
         "total_sales": total_sales,
-        "total_revenue": round(float(total_revenue), 2)
+        "total_revenue": round(float(total_revenue), 2),
+        "total_inventory_value": round(float(total_inventory_value), 2)
     }

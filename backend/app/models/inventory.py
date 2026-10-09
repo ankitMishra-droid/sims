@@ -11,10 +11,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from ..database import base
 
-# ============================================================
-# Inventory Log
-# ============================================================
-
+# inventory log model
 class InventoryLog(base):
     __tablename__ = "inventory_logs"
 

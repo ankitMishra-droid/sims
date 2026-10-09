@@ -11,21 +11,18 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from ..database import base
 
-# ============================================================
-# Supplier
-# ============================================================
-
+# supplier model
 class Supplier(base):
     __tablename__ = "suppliers"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    email = Column(String, nullable=False)
-    phone = Column(Integer, nullable=False)
-    address = Column(String, nullable=False)
-    #How many days does this supplier normally take to deliver an order? it tells us when should i order more stock
-    lead_time_days = Column(Integer, default=7) # Lead Time Days=Stock Available Date−Purchase Order Date
-    is_active = Column(Boolean, default=True)
+    name = Column(String(150), nullable=False, index=True)
+    contact_person = Column(String(100), nullable=True)
+    email = Column(String(255), nullable=True)
+    phone = Column(String(30), nullable=True)
+    address = Column(String(255), nullable=True)
+    lead_time_days = Column(Integer, nullable=False, default=7)
+    is_active = Column(Boolean, nullable=False, default=True)
 
     # One Supplier -> Many Products
     products = relationship(

@@ -88,3 +88,14 @@ def activate_product(product_id: int, db: Session = Depends(get_db)):
     db.refresh(product)
 
     return {"data": product, "message": "Product Activated"}
+
+# Fetch all products
+@router.get("/", response_model=list[product_schema.ProductResponse])
+def get_all_products(db: Session = Depends(get_db)):
+    products = db.query(models.Product).filter(models.Product.is_active == True).all()
+
+    if not products:
+        raise HTTPException(status_code=404, detail="No products found")
+
+    return {"data": products, "message": "All products fetched successfully"}
+
