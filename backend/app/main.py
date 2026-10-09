@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from .database import base, engine
-from . import models
-from .routers import products, sales
+from .routers import products, sales, inventory, dashboard
 
 base.metadata.create_all(bind=engine)
 
@@ -12,6 +11,8 @@ app = FastAPI(
 
 app.include_router(products.router)
 app.include_router(sales.router)
+app.include_router(inventory.router)
+app.include_router(dashboard.router)
 
 @app.get("/")
 def home():

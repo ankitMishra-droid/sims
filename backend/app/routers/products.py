@@ -1,14 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import models, schemas
+from ..schemas import product_schema
 from ..database import get_db
+from .. import models
+    
 
 router = APIRouter(prefix="/api/products", tags=["Products"])
 
 # Create Product
-@router.post("/", response_model=schemas.ProductResponse)
-def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)):
+@router.post("/", response_model=product_schema.ProductResponse)
+def create_product(product: product_schema.ProductCreate, db: Session = Depends(get_db)):
     existing = db.query(models.Product).filter(models.Product.sku == product.sku).first()
 
     # if sku is already present in database
@@ -33,7 +35,7 @@ def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)
     return {"data": db_product, "message": "Product added successfully"}
 
 # Fetch product
-@router.get("/{product_id}", response_model=schemas.ProductResponse)
+@router.get("/{product_id}", response_model=product_schema.ProductResponse)
 def get_product(product_id: int, db: Session = Depends(get_db)):
     # find product by id
     product = db.query(models.Product).filter(models.Product.id == product_id, models.Product.is_active == True).first()
@@ -44,8 +46,8 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
     return {"data": product, "message": "product fetched successfully"}
 
 # Update Product
-@router.put("/{product_id}", response_model=schemas.ProductResponse)
-def update_product(product_id: int, updated: schemas.ProductCreate, db: Session = Depends(get_db)):
+@router.put("/{product_id}", response_model=product_schema.ProductResponse)
+def update_product(product_id: int, updated: product_schema.ProductCreate, db: Session = Depends(get_db)):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
 
     if not product:

@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import models, schemas
+from .. import schemas
 from ..database import get_db
+from .. import models
 
 router = APIRouter(prefix="/api/sales", tags=['Sales'])
 
@@ -51,7 +52,7 @@ def create_sale(sale: schemas.SaleCreate, db: Session = Depends(get_db)):
     }
 
 # Fetch all sales data
-@router.get("/", response_model=list[schemas.SaleResponse])
+@router.get("/", response_model=schemas.SaleListResponse)
 def get_sales(db: Session = Depends(get_db)):
     sale = db.query(models.Sale).order_by(models.Sale.sales_date.desc()).all()
 
@@ -67,5 +68,5 @@ def get_sale_by_product(product_id: int, db: Session = Depends(get_db)):
 
     return {
         "data": sale,
-        "message": f"product_id - {sale.product_id} fetched"
+        "message": f"sale product fetched"
     }
