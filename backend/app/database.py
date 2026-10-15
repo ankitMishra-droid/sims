@@ -1,11 +1,14 @@
 import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./inventory.db")
+BASE_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_DB_FILE = (BASE_DIR / "inventory.db").as_posix()
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DEFAULT_DB_FILE}")
 
 engine = create_engine(
     DATABASE_URL,

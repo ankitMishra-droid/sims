@@ -43,3 +43,10 @@ class StockInCreate(BaseModel):
 class LowStockResponse(BaseModel):
     data: list[ProductOut]
     message: str
+
+class ProductListResponse(BaseModel):
+    data: list[ProductOut]
+    message: str
+
+    class Config:
+        from_attributes = True

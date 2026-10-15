@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from .. import models,schemas
 from ..database import get_db
@@ -9,7 +10,9 @@ router = APIRouter(prefix="/api/suppliers", tags=["Suppliers"])
 # create supplier
 @router.post("/", response_model=schemas.SupplierCreateResponse)
 def create_supplier(payload: schemas.SupplierCreate, db: Session = Depends(get_db)):
-    existing_supplier = db.query(models.Supplier).filter(models.Supplier.email == payload.email or models.Supplier.name == payload.name).first()
+    existing_supplier = db.query(models.Supplier).filter(
+        or_(models.Supplier.email == payload.email, models.Supplier.name == payload.name)
+    ).first()
 
     if existing_supplier:
         raise HTTPException(

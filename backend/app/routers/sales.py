@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from .. import schemas
 from ..database import get_db
 from .. import models
+from ..services import stock_service
 
 router = APIRouter(prefix="/api/sales", tags=['Sales'])
 
@@ -33,6 +34,12 @@ def create_sale(sale: schemas.SaleCreate, db: Session = Depends(get_db)):
     )
 
     product.current_stock -= sale.quantity_sold
+    # stock_service.decrease_stock(
+    #     db=db,
+    #     product_id=product.id,
+    #     quantity=sale.quantity_sold,
+    #     reason="sale"
+    # )
 
     db.add(db_sale)
 

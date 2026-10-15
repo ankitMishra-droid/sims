@@ -90,7 +90,7 @@ def activate_product(product_id: int, db: Session = Depends(get_db)):
     return {"data": product, "message": "Product Activated"}
 
 # Fetch all products
-@router.get("/", response_model=list[product_schema.ProductResponse])
+@router.get("/", response_model=product_schema.ProductListResponse)
 def get_all_products(db: Session = Depends(get_db)):
     products = db.query(models.Product).filter(models.Product.is_active == True).all()
 

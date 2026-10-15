@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from .. import models
 from .. import schemas
+from ..services import stock_service
 
 router = APIRouter(
     prefix="/api/inventory",
@@ -37,6 +38,12 @@ def add_stock(
 
     # Update stock
     product.current_stock += stock.quantity
+    # stock_service.increase_stock(
+    #     db=db,
+    #     product_id=product.id,
+    #     quantity=stock.quantity,
+    #     reason=stock.reason
+    # )
 
     # Create inventory log
     log = models.InventoryLog(

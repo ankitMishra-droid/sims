@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..database import get_db
+from ..services import stock_service
 
 router = APIRouter(
     prefix="/api/purchase-orders",
@@ -137,6 +138,12 @@ def receive_purchase_order(order_id: int, db: Session = Depends(get_db)):
         product = db.query(models.Product).filter(models.Product.id == item.product_id).first()
         if product:
             product.current_stock += item.received_quantity
+            # stock_service.increase_stock(
+            #     db=db,
+            #     product_id=product.id,
+            #     quantity=item.received_quantity,
+            #     reason="purchase_order_received"
+            # )
 
             # Create an inventory log entry for this stock addition
             inventory_log = models.InventoryLog(
@@ -232,6 +239,12 @@ def partially_receive_purchase_order(
 
     # update inventory stock
     product.current_stock += payload.received_quantity
+    # stock_service.increase_stock(
+    #     db=db,
+    #     product_id=product.id,
+    #     quantity=payload.received_quantity,
+    #     reason="purchase_order_partially_received"
+    # )
 
     # create inventory log
     inventory_log = models.InventoryLog(
