@@ -12,3 +12,4 @@ h11==0.16.0
 idna==3.20
 annotated-types==0.8.0
 psycopg2-binary>=2.9.9
+psycopg[binary]>=3.1.18
