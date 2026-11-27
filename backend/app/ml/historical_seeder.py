@@ -7,7 +7,7 @@ Models true retail characteristics: weekly seasonality, holiday surges, trends, 
 import sys
 import random
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 backend_dir = Path(__file__).resolve().parent.parent.parent
 if str(backend_dir) not in sys.path:
@@ -33,7 +33,7 @@ def seed_historical_sales(days: int = 700):
 
     print(f"Generating realistic {days}-day sales history across {len(products)} products...")
 
-    start_date = datetime.now() - timedelta(days=days)
+    start_date = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
     new_sales = []
 
     random.seed(42)
@@ -69,6 +69,7 @@ def seed_historical_sales(days: int = 700):
             if qty > 0:
                 revenue = round(qty * price, 2)
                 sale = Sale(
+                    business_id=product.business_id,
                     product_id=product.id,
                     quantity_sold=qty,
                     selling_price=price,

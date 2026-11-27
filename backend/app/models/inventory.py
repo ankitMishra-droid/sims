@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from sqlalchemy import (
     Column,
     DateTime,
@@ -11,6 +12,10 @@ from sqlalchemy.orm import relationship
 from ..database import base
 
 
+def _utcnow():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 class InventoryLog(base):
     __tablename__ = "inventory_logs"
     __table_args__ = (
@@ -20,7 +25,7 @@ class InventoryLog(base):
     id = Column(Integer, primary_key=True, index=True)
     business_id = Column(Integer, ForeignKey("businesses.id"), nullable=False, index=True)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
-    timestamp = Column(DateTime, server_default=func.now(), index=True)
+    timestamp = Column(DateTime, default=_utcnow, server_default=func.now(), index=True)
     movement_type = Column(String(30), nullable=False, default="STOCK_ADJUSTMENT")
     stock_in = Column(Integer, nullable=False, default=0)
     stock_out = Column(Integer, nullable=False, default=0)

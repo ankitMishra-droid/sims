@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+import os
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -5,11 +7,11 @@ _BACKEND_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(_BACKEND_DIR / ".env")
 load_dotenv(_BACKEND_DIR.parent / ".env")
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from .database import engine
+from .database import check_database_health, engine
 from .db_migrate import ensure_schema_and_backfill
-from .models import *  # Ensure all models (including User) register with metadata
+from .models import *  # noqa: F403 - register all SQLAlchemy models
 from .routers import (
     products,
     sales,
@@ -28,13 +30,19 @@ from .routers import (
     analytics,
 )
 
-# Safely create/upgrade tables and backfill defaults without destroying data
-ensure_schema_and_backfill(engine)
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    if os.getenv("SKIP_DB_MIGRATIONS", "0") != "1":
+        ensure_schema_and_backfill(engine)
+    yield
+
 
 app = FastAPI(
     title="StockSangati - Smart Inventory Demand Forecasting Platform",
     description="Integrated Inventory Management & Machine Learning Demand Forecasting Intelligence System",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -66,6 +74,7 @@ app.include_router(decision.router)
 app.include_router(simulator.router)
 app.include_router(analytics.router)
 
+
 @app.get("/")
 def home():
     return {
@@ -82,3 +91,20 @@ def home():
             "Demand Spike & Anomaly Detection"
         ]
     }
+
+
+@app.get("/health")
+def health_check():
+    """Render/uptime health check verifying database connectivity."""
+    try:
+        check_database_health(engine)
+        return {
+            "status": "ok",
+            "database": "connected",
+            "dialect": engine.dialect.name,
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Database health check failed: {exc}",
+        )

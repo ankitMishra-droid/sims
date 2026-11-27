@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from sqlalchemy import (
     CheckConstraint,
     Column,
@@ -15,6 +16,10 @@ from sqlalchemy.orm import relationship
 from ..database import base
 
 
+def _utcnow():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 class Sale(base):
     __tablename__ = "sales"
     __table_args__ = (
@@ -28,7 +33,7 @@ class Sale(base):
     id = Column(Integer, primary_key=True, index=True)
     business_id = Column(Integer, ForeignKey("businesses.id"), nullable=False, index=True)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
-    sales_date = Column(DateTime, server_default=func.now(), index=True)
+    sales_date = Column(DateTime, default=_utcnow, server_default=func.now(), index=True)
     quantity_sold = Column(Integer, nullable=False)
     selling_price = Column(Float, nullable=False)
     revenue = Column(Float, nullable=False)

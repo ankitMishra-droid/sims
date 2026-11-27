@@ -1,82 +1,87 @@
+from pathlib import Path
+
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session
 
-from .database import base, engine
+from .database import engine
 
-
-def _existing_columns(insp, table_name: str) -> set[str]:
-    if not insp.has_table(table_name):
-        return set()
-    return {col["name"] for col in insp.get_columns(table_name)}
+BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 
-def _add_column_if_missing(conn, insp, table_name: str, col_name: str, ddl_type: str) -> None:
-    cols = _existing_columns(insp, table_name)
-    if col_name not in cols:
-        conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {ddl_type}"))
+def _alembic_config(url: str) -> Config:
+    cfg = Config(str(BACKEND_DIR / "alembic.ini"))
+    cfg.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
+    cfg.set_main_option("sqlalchemy.url", url)
+    return cfg
 
 
-def ensure_schema_and_backfill(target_engine: Engine = engine) -> None:
-    """Safely create missing tables/columns/indexes and backfill default tenant ownership."""
-    from . import models  # noqa: F401 - register metadata
+def run_alembic_migrations(target_engine: Engine = engine) -> None:
+    """Apply Alembic schema revisions against target_engine safely on SQLite and PostgreSQL."""
+    from . import models  # noqa: F401 - register SQLAlchemy metadata
 
-    base.metadata.create_all(bind=target_engine)
+    url = target_engine.url.render_as_string(hide_password=False)
+    cfg = _alembic_config(url)
+    with target_engine.connect() as conn:
+        cfg.attributes["connection"] = conn
+        command.upgrade(cfg, "head")
+        # Ensure connection commit when dialect isn't autocommit
+        if conn.in_transaction():
+            conn.commit()
 
+
+def _drop_legacy_global_product_sku_unique(conn, insp) -> None:
+    """Replace any legacy global-unique products.sku index/constraint with non-unique ix_products_sku."""
+    if not insp.has_table("products"):
+        return
+
+    if conn.dialect.name == "sqlite":
+        idx_rows = conn.execute(text("PRAGMA index_list(products)")).fetchall()
+        for row in idx_rows:
+            if row[1] == "ix_products_sku" and row[2] == 1 and row[3] == "c":
+                conn.execute(text("DROP INDEX IF EXISTS ix_products_sku"))
+    else:
+        for idx in insp.get_indexes("products"):
+            if idx.get("name") == "ix_products_sku" and idx.get("unique"):
+                conn.execute(text("DROP INDEX IF EXISTS ix_products_sku"))
+        for uc in insp.get_unique_constraints("products"):
+            if uc.get("column_names") == ["sku"] and uc.get("name"):
+                conn.execute(text(f'ALTER TABLE products DROP CONSTRAINT IF EXISTS "{uc["name"]}"'))
+
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_products_sku ON products (sku)"))
+
+
+def _ensure_tenant_unique_indexes(conn, insp) -> None:
+    """Ensure tenant-scoped SKU and supplier-name uniqueness exists on both SQLite and PostgreSQL."""
+    if insp.has_table("products"):
+        existing_uqs = {uc.get("name") for uc in insp.get_unique_constraints("products")}
+        existing_uqs.update(idx.get("name") for idx in insp.get_indexes("products") if idx.get("unique"))
+        if "uq_product_business_sku" not in existing_uqs:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_product_business_sku "
+                    "ON products (business_id, sku)"
+                )
+            )
+
+    if insp.has_table("suppliers"):
+        existing_uqs = {uc.get("name") for uc in insp.get_unique_constraints("suppliers")}
+        existing_uqs.update(idx.get("name") for idx in insp.get_indexes("suppliers") if idx.get("unique"))
+        if "uq_supplier_business_name" not in existing_uqs:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_supplier_business_name "
+                    "ON suppliers (business_id, name)"
+                )
+            )
+
+
+def backfill_legacy_defaults(target_engine: Engine = engine) -> None:
+    """Idempotently backfill tenant ownership, defaults, order numbers, and stock history."""
     with target_engine.begin() as conn:
         insp = inspect(conn)
 
-        _add_column_if_missing(conn, insp, "users", "active_business_id", "INTEGER")
-        _add_column_if_missing(conn, insp, "users", "preferred_language", "VARCHAR(10) DEFAULT 'en'")
-        _add_column_if_missing(conn, insp, "users", "token_version", "INTEGER DEFAULT 1")
-
-        _add_column_if_missing(conn, insp, "businesses", "default_language", "VARCHAR(10) DEFAULT 'en'")
-        _add_column_if_missing(conn, insp, "businesses", "contact_email", "VARCHAR(120)")
-        _add_column_if_missing(conn, insp, "businesses", "contact_phone", "VARCHAR(30)")
-        _add_column_if_missing(conn, insp, "businesses", "address", "VARCHAR(255)")
-        _add_column_if_missing(conn, insp, "businesses", "gstin_or_tax_id", "VARCHAR(50)")
-        _add_column_if_missing(conn, insp, "businesses", "currency", "VARCHAR(10) DEFAULT 'INR'")
-        _add_column_if_missing(conn, insp, "businesses", "low_stock_threshold_default", "INTEGER DEFAULT 10")
-        _add_column_if_missing(conn, insp, "businesses", "onboarding_completed", "BOOLEAN DEFAULT 0")
-
-        _add_column_if_missing(conn, insp, "suppliers", "business_id", "INTEGER")
-        _add_column_if_missing(conn, insp, "suppliers", "linked_business_id", "INTEGER")
-        _add_column_if_missing(conn, insp, "suppliers", "created_at", "DATETIME")
-        _add_column_if_missing(conn, insp, "suppliers", "updated_at", "DATETIME")
-
-        _add_column_if_missing(conn, insp, "products", "business_id", "INTEGER")
-        _add_column_if_missing(conn, insp, "products", "created_at", "DATETIME")
-        _add_column_if_missing(conn, insp, "products", "updated_at", "DATETIME")
-
-        _add_column_if_missing(conn, insp, "sales", "business_id", "INTEGER")
-        _add_column_if_missing(conn, insp, "sales", "status", "VARCHAR(20) DEFAULT 'COMPLETED'")
-        _add_column_if_missing(conn, insp, "sales", "created_by", "INTEGER")
-        _add_column_if_missing(conn, insp, "sales", "idempotency_key", "VARCHAR(120)")
-        _add_column_if_missing(conn, insp, "sales", "notes", "TEXT")
-
-        _add_column_if_missing(conn, insp, "inventory_logs", "business_id", "INTEGER")
-        _add_column_if_missing(conn, insp, "inventory_logs", "movement_type", "VARCHAR(30)")
-        _add_column_if_missing(conn, insp, "inventory_logs", "previous_stock", "INTEGER")
-        _add_column_if_missing(conn, insp, "inventory_logs", "reference_type", "VARCHAR(50)")
-        _add_column_if_missing(conn, insp, "inventory_logs", "reference_id", "INTEGER")
-        _add_column_if_missing(conn, insp, "inventory_logs", "user_id", "INTEGER")
-
-        _add_column_if_missing(conn, insp, "purchase_orders", "business_id", "INTEGER")
-        _add_column_if_missing(conn, insp, "purchase_orders", "order_number", "VARCHAR(40)")
-        _add_column_if_missing(conn, insp, "purchase_orders", "total_amount", "NUMERIC(12, 2) DEFAULT 0")
-        _add_column_if_missing(conn, insp, "purchase_orders", "created_by", "INTEGER")
-        _add_column_if_missing(conn, insp, "purchase_orders", "sent_at", "DATETIME")
-        _add_column_if_missing(conn, insp, "purchase_orders", "received_at", "DATETIME")
-        _add_column_if_missing(conn, insp, "purchase_orders", "cancelled_at", "DATETIME")
-        _add_column_if_missing(conn, insp, "purchase_orders", "updated_at", "DATETIME")
-        _add_column_if_missing(conn, insp, "purchase_orders", "shared_with_supplier", "BOOLEAN DEFAULT 0")
-        _add_column_if_missing(conn, insp, "purchase_orders", "shared_at", "DATETIME")
-        _add_column_if_missing(conn, insp, "purchase_orders", "supplier_status", "VARCHAR(40)")
-        _add_column_if_missing(conn, insp, "purchase_orders", "supplier_notes", "TEXT")
-        _add_column_if_missing(conn, insp, "purchase_orders", "supplier_acknowledged_at", "DATETIME")
-        _add_column_if_missing(conn, insp, "purchase_orders", "supplier_dispatched_at", "DATETIME")
-
-        # Backfill default workspace for pre-existing single-tenant data before creating unique indexes
         biz_count = conn.execute(text("SELECT COUNT(*) FROM businesses")).scalar() or 0
         default_biz_id = None
         if biz_count == 0:
@@ -85,19 +90,26 @@ def ensure_schema_and_backfill(target_engine: Engine = engine) -> None:
                 owner_id = next((r[0] for r in user_rows if r[1] == "admin"), user_rows[0][0])
                 conn.execute(
                     text(
-                        "INSERT INTO businesses (name, business_type, owner_user_id, allow_negative_stock, is_active) "
-                        "VALUES (:name, :btype, :owner_id, 0, 1)"
+                        "INSERT INTO businesses (name, business_type, owner_user_id, allow_negative_stock, onboarding_completed, is_active) "
+                        "VALUES (:name, :btype, :owner_id, :allow_neg, :onboarded, :active)"
                     ),
-                    {"name": "StockSangati Primary Workspace", "btype": "retailer", "owner_id": owner_id},
+                    {
+                        "name": "StockSangati Primary Workspace",
+                        "btype": "retailer",
+                        "owner_id": owner_id,
+                        "allow_neg": False,
+                        "onboarded": False,
+                        "active": True,
+                    },
                 )
                 default_biz_id = conn.execute(text("SELECT id FROM businesses ORDER BY id ASC LIMIT 1")).scalar()
                 for uid, role in user_rows:
                     conn.execute(
                         text(
                             "INSERT INTO business_members (business_id, user_id, role, is_active) "
-                            "VALUES (:bid, :uid, :role, 1)"
+                            "VALUES (:bid, :uid, :role, :active)"
                         ),
-                        {"bid": default_biz_id, "uid": uid, "role": role or "staff"},
+                        {"bid": default_biz_id, "uid": uid, "role": role or "staff", "active": True},
                     )
                 conn.execute(
                     text("UPDATE users SET active_business_id = :bid WHERE active_business_id IS NULL"),
@@ -113,19 +125,24 @@ def ensure_schema_and_backfill(target_engine: Engine = engine) -> None:
                     {"bid": default_biz_id},
                 )
 
-        # Backfill PO order_number and total_amount
-        conn.execute(
-            text(
-                "UPDATE purchase_orders "
-                "SET order_number = 'PO-' || printf('%04d', id) "
-                "WHERE order_number IS NULL"
+        # Cross-dialect PO order_number and total_amount backfill
+        if conn.dialect.name == "sqlite":
+            conn.execute(
+                text(
+                    "UPDATE purchase_orders "
+                    "SET order_number = 'PO-' || printf('%04d', id) "
+                    "WHERE order_number IS NULL"
+                )
             )
-            if target_engine.dialect.name == "sqlite"
-            else text(
-                "UPDATE purchase_orders SET order_number = CONCAT('PO-', LPAD(CAST(id AS TEXT), 4, '0')) "
-                "WHERE order_number IS NULL"
+        else:
+            conn.execute(
+                text(
+                    "UPDATE purchase_orders "
+                    "SET order_number = CONCAT('PO-', LPAD(CAST(id AS TEXT), 4, '0')) "
+                    "WHERE order_number IS NULL"
+                )
             )
-        )
+
         conn.execute(
             text(
                 "UPDATE purchase_orders SET total_amount = ROUND(COALESCE(("
@@ -135,7 +152,7 @@ def ensure_schema_and_backfill(target_engine: Engine = engine) -> None:
             )
         )
 
-        # Backfill InventoryLog movement_type and previous_stock
+        # Backfill InventoryLog movement_type and dialect-neutral non-negative previous_stock
         conn.execute(
             text(
                 "UPDATE inventory_logs SET "
@@ -151,67 +168,44 @@ def ensure_schema_and_backfill(target_engine: Engine = engine) -> None:
         conn.execute(
             text(
                 "UPDATE inventory_logs SET "
-                "previous_stock = MAX(0, closing_stock - COALESCE(stock_in, 0) + COALESCE(stock_out, 0)) "
+                "previous_stock = CASE "
+                "  WHEN (closing_stock - COALESCE(stock_in, 0) + COALESCE(stock_out, 0)) > 0 "
+                "  THEN (closing_stock - COALESCE(stock_in, 0) + COALESCE(stock_out, 0)) "
+                "  ELSE 0 "
+                "END "
                 "WHERE previous_stock IS NULL"
             )
         )
+
         conn.execute(text("UPDATE sales SET status = 'COMPLETED' WHERE status IS NULL"))
         conn.execute(text("UPDATE users SET preferred_language = 'en' WHERE preferred_language IS NULL OR preferred_language = ''"))
         conn.execute(text("UPDATE users SET token_version = 1 WHERE token_version IS NULL"))
         conn.execute(text("UPDATE businesses SET default_language = 'en' WHERE default_language IS NULL OR default_language = ''"))
         conn.execute(text("UPDATE businesses SET currency = 'INR' WHERE currency IS NULL OR currency = ''"))
         conn.execute(text("UPDATE businesses SET low_stock_threshold_default = 10 WHERE low_stock_threshold_default IS NULL"))
-        conn.execute(text("UPDATE businesses SET onboarding_completed = 0 WHERE onboarding_completed IS NULL"))
-        conn.execute(text("UPDATE purchase_orders SET shared_with_supplier = 0 WHERE shared_with_supplier IS NULL"))
+        conn.execute(
+            text("UPDATE businesses SET onboarding_completed = :val WHERE onboarding_completed IS NULL"),
+            {"val": False},
+        )
+        conn.execute(
+            text("UPDATE purchase_orders SET shared_with_supplier = :val WHERE shared_with_supplier IS NULL"),
+            {"val": False},
+        )
         conn.execute(
             text(
-                "UPDATE businesses SET onboarding_completed = 1 "
-                "WHERE onboarding_completed = 0 "
+                "UPDATE businesses SET onboarding_completed = :done "
+                "WHERE onboarding_completed = :pending "
                 "AND EXISTS (SELECT 1 FROM products WHERE products.business_id = businesses.id) "
                 "AND NOT EXISTS (SELECT 1 FROM business_onboarding_progress WHERE business_onboarding_progress.business_id = businesses.id)"
-            )
+            ),
+            {"done": True, "pending": False},
         )
 
-        # Replace global unique ix_products_sku with tenant-scoped unique index on SQLite
-        if target_engine.dialect.name == "sqlite":
-            idx_rows = conn.execute(text("PRAGMA index_list(products)")).fetchall()
-            for row in idx_rows:
-                # row: (seq, name, unique, origin, partial)
-                if row[1] == "ix_products_sku" and row[2] == 1 and row[3] == "c":
-                    conn.execute(text("DROP INDEX IF EXISTS ix_products_sku"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_products_sku ON products (sku)"))
-            conn.execute(
-                text(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_product_business_sku "
-                    "ON products (business_id, sku)"
-                )
-            )
-            conn.execute(
-                text(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_supplier_business_name "
-                    "ON suppliers (business_id, name)"
-                )
-            )
+        _drop_legacy_global_product_sku_unique(conn, insp)
+        _ensure_tenant_unique_indexes(conn, insp)
 
-        # Create performance indexes safely
-        index_statements = [
-            "CREATE INDEX IF NOT EXISTS ix_suppliers_business_id ON suppliers (business_id)",
-            "CREATE INDEX IF NOT EXISTS ix_products_business_id ON products (business_id)",
-            "CREATE INDEX IF NOT EXISTS ix_products_supplier_id ON products (supplier_id)",
-            "CREATE INDEX IF NOT EXISTS ix_sales_business_id ON sales (business_id)",
-            "CREATE INDEX IF NOT EXISTS ix_sales_product_id ON sales (product_id)",
-            "CREATE INDEX IF NOT EXISTS ix_sales_sales_date ON sales (sales_date)",
-            "CREATE INDEX IF NOT EXISTS ix_sales_biz_prod_date ON sales (business_id, product_id, sales_date)",
-            "CREATE INDEX IF NOT EXISTS ix_inventory_logs_business_id ON inventory_logs (business_id)",
-            "CREATE INDEX IF NOT EXISTS ix_inventory_logs_product_id ON inventory_logs (product_id)",
-            "CREATE INDEX IF NOT EXISTS ix_inventory_logs_timestamp ON inventory_logs (timestamp)",
-            "CREATE INDEX IF NOT EXISTS ix_inventory_logs_biz_prod_ts ON inventory_logs (business_id, product_id, timestamp)",
-            "CREATE INDEX IF NOT EXISTS ix_purchase_orders_business_id ON purchase_orders (business_id)",
-            "CREATE INDEX IF NOT EXISTS ix_purchase_orders_supplier_id ON purchase_orders (supplier_id)",
-            "CREATE INDEX IF NOT EXISTS ix_purchase_orders_order_number ON purchase_orders (order_number)",
-            "CREATE INDEX IF NOT EXISTS ix_po_biz_status ON purchase_orders (business_id, status)",
-            "CREATE INDEX IF NOT EXISTS ix_po_items_po_prod ON purchase_order_items (purchase_order_id, product_id)",
-            "CREATE INDEX IF NOT EXISTS ix_users_active_business_id ON users (active_business_id)",
-        ]
-        for stmt in index_statements:
-            conn.execute(text(stmt))
+
+def ensure_schema_and_backfill(target_engine: Engine = engine) -> None:
+    """Run controlled Alembic schema migrations followed by idempotent legacy data backfill."""
+    run_alembic_migrations(target_engine)
+    backfill_legacy_defaults(target_engine)

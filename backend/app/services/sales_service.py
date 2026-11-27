@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
@@ -180,13 +180,17 @@ class SalesService:
             query = query.filter(models.Sale.product_id == product_id)
         if start_date:
             try:
-                dt_start = datetime.fromisoformat(start_date)
+                dt_start = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
+                if dt_start.tzinfo is not None:
+                    dt_start = dt_start.astimezone(timezone.utc).replace(tzinfo=None)
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid start_date format (expected ISO date)")
             query = query.filter(models.Sale.sales_date >= dt_start)
         if end_date:
             try:
-                dt_end = datetime.fromisoformat(end_date)
+                dt_end = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+                if dt_end.tzinfo is not None:
+                    dt_end = dt_end.astimezone(timezone.utc).replace(tzinfo=None)
                 if len(end_date) == 10:
                     dt_end = dt_end.replace(hour=23, minute=59, second=59, microsecond=999999)
             except ValueError:

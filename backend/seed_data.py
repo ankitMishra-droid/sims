@@ -424,14 +424,12 @@ def seed_database():
                     db.add(log)
                     db.commit()
             else:
-                # Update attributes to make sure category and supplier match
-                for key, val in p_copy.items():
-                    setattr(product, key, val)
-                product.supplier_id = supplier_id
-                product.is_active = True
-                db.commit()
+                # Preserve existing inventory/pricing values while backfilling missing supplier link if needed
+                if product.supplier_id is None and supplier_id is not None:
+                    product.supplier_id = supplier_id
+                    db.commit()
                 updated_count += 1
-                print(f"  * Updated Product [{product.sku}]: {product.name}")
+                print(f"  * Existing Product [{product.sku}]: {product.name}")
 
         total_prods = db.query(models.Product).filter(models.Product.is_active == True).count()
         total_supps = db.query(models.Supplier).filter(models.Supplier.is_active == True).count()

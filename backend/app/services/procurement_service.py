@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Dict, List, Optional, Tuple
 from fastapi import HTTPException
 from sqlalchemy import update
@@ -14,6 +14,14 @@ logger = logging.getLogger("sims.procurement")
 
 def _utcnow():
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _coerce_datetime(val: Optional[date | datetime]) -> Optional[datetime]:
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        return val.astimezone(timezone.utc).replace(tzinfo=None) if val.tzinfo else val
+    return datetime(val.year, val.month, val.day)
 
 
 class ProcurementService:
@@ -87,7 +95,7 @@ class ProcurementService:
             order = models.PurchaseOrder(
                 business_id=business_id,
                 supplier_id=payload.supplier_id,
-                expected_delivery_date=payload.expected_delivery_date,
+                expected_delivery_date=_coerce_datetime(payload.expected_delivery_date),
                 notes=payload.notes,
                 status=models.PurchaseOrderStatus.DRAFT,
                 total_amount=total_amount,
@@ -176,7 +184,7 @@ class ProcurementService:
         updates = payload.model_dump(exclude_unset=True)
         try:
             if "expected_delivery_date" in updates:
-                order.expected_delivery_date = updates["expected_delivery_date"]
+                order.expected_delivery_date = _coerce_datetime(updates["expected_delivery_date"])
             if "notes" in updates:
                 order.notes = updates["notes"]
             if payload.items is not None:
