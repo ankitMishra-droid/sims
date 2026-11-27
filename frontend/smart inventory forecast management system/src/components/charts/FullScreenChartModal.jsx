@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   X,
   Minimize2,
   Download,
   Search,
-  Filter,
   BarChart3,
   Table as TableIcon,
   Layers,
@@ -81,7 +80,7 @@ export default function FullScreenChartModal({
         if (valA === null || valA === undefined) return 1
         if (valB === null || valB === undefined) return -1
 
-        let cmp = 0
+        let cmp
         if (typeof valA === 'number' && typeof valB === 'number') {
           cmp = valA - valB
         } else {

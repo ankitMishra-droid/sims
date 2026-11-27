@@ -1,4 +1,3 @@
-import React from 'react'
 import { useSelector, useDispatch } from 'react-redux'
 import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react'
 import { removeToast } from '../store/uiSlice'

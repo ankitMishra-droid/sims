@@ -1,6 +1,6 @@
-import { createSlice, createAsyncThunk, createSelector } from '@reduxjs/toolkit'
-import { api } from '../api'
-import { showToast } from './uiSlice'
+import { createSlice, createAsyncThunk } from '@reduxjs/toolkit'
+import { api } from '../api.js'
+import { showToast } from './uiSlice.js'
 
 export const fetchSuppliers = createAsyncThunk(
   'suppliers/fetchSuppliers',

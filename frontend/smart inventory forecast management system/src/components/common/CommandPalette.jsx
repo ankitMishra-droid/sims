@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSelector, useDispatch } from 'react-redux'
 import {
@@ -11,13 +11,37 @@ import {
   Inbox,
   LayoutDashboard,
   ArrowRight,
-  X,
-  Command,
+  BrainCircuit,
+  Sliders,
+  CheckCircle2,
 } from 'lucide-react'
 import { selectAllProducts } from '../../store/productsSlice'
 import { selectAllSuppliers } from '../../store/suppliersSlice'
 import { selectAllPurchaseOrders } from '../../store/purchaseOrdersSlice'
 import { setCommandPaletteOpen } from '../../store/uiSlice'
+
+const NAVIGATION_ITEMS = [
+  { type: 'Page', title: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+  { type: 'Page', title: 'Products', path: '/products', icon: Package },
+  { type: 'Page', title: 'Stock Management', path: '/inventory', icon: Boxes },
+  { type: 'Page', title: 'Stock History', path: '/inventory/history', icon: Boxes },
+  { type: 'Page', title: 'Stock Adjustments', path: '/inventory/adjustments', icon: Sliders },
+  { type: 'Page', title: 'Record Sale', path: '/sales/new', icon: ShoppingCart },
+  { type: 'Page', title: 'Sales History', path: '/sales', icon: ShoppingCart },
+  { type: 'Page', title: 'Suppliers', path: '/suppliers', icon: Truck },
+  { type: 'Page', title: 'Purchase Orders', path: '/purchase-orders', icon: ClipboardList },
+  { type: 'Page', title: 'Receive Orders', path: '/receive-order', icon: Inbox },
+  { type: 'Page', title: 'Reorder Suggestions', path: '/reorder-planner', icon: CheckCircle2 },
+  { type: 'Page', title: 'Demand Forecasts', path: '/forecasting', icon: BrainCircuit },
+  { type: 'Page', title: 'What-If Simulator', path: '/simulator', icon: Sliders },
+  { type: 'Page', title: 'Stock Alerts', path: '/stock-alerts', icon: BrainCircuit },
+  { type: 'Page', title: 'Workspaces', path: '/workspaces', icon: LayoutDashboard },
+  { type: 'Page', title: 'Setup Wizard', path: '/onboarding', icon: CheckCircle2 },
+  { type: 'Page', title: 'Business Settings', path: '/settings/business', icon: Sliders },
+  { type: 'Page', title: 'Team & Roles', path: '/settings/team', icon: Truck },
+  { type: 'Page', title: 'Security & Password', path: '/settings/security', icon: Sliders },
+  { type: 'Page', title: 'Language Settings', path: '/settings/language', icon: Sliders },
+]
 
 export default function CommandPalette() {
   const navigate = useNavigate()
@@ -49,34 +73,26 @@ export default function CommandPalette() {
 
   useEffect(() => {
     if (isOpen) {
-      setQuery('')
-      setSelectedIndex(0)
-      setTimeout(() => inputRef.current?.focus(), 50)
+      const timer = setTimeout(() => {
+        setQuery('')
+        setSelectedIndex(0)
+        inputRef.current?.focus()
+      }, 0)
+      return () => clearTimeout(timer)
     }
   }, [isOpen])
-
-  // Static navigation routes
-  const navigationItems = [
-    { type: 'Page', title: 'Products Catalog', path: '/products', icon: Package },
-    { type: 'Page', title: 'Sales & POS', path: '/sales', icon: ShoppingCart },
-    { type: 'Page', title: 'Inventory & Stock History', path: '/inventory', icon: Boxes },
-    { type: 'Page', title: 'Vendors & Suppliers', path: '/suppliers', icon: Truck },
-    { type: 'Page', title: 'Purchase Orders', path: '/purchase-orders', icon: ClipboardList },
-    { type: 'Page', title: 'Receive Inbound Orders', path: '/receive-order', icon: Inbox },
-    { type: 'Page', title: 'Executive Dashboard', path: '/dashboard', icon: LayoutDashboard },
-  ]
 
   // Filtered search results
   const results = useMemo(() => {
     const q = query.toLowerCase().trim()
     if (!q) {
-      return navigationItems.map((n) => ({ ...n, subtitle: 'Go to module' }))
+      return NAVIGATION_ITEMS.map((n) => ({ ...n, subtitle: 'Go to module' }))
     }
 
     const items = []
 
     // Match pages
-    navigationItems.forEach((n) => {
+    NAVIGATION_ITEMS.forEach((n) => {
       if (n.title.toLowerCase().includes(q)) {
         items.push({ ...n, subtitle: 'Go to module' })
       }
@@ -92,7 +108,7 @@ export default function CommandPalette() {
         items.push({
           type: 'Product',
           title: `${p.name} (${p.sku})`,
-          subtitle: `In Stock: ${p.current_stock} ${p.unit} &bull; ₹${Number(p.selling_price).toFixed(2)}`,
+          subtitle: `In Stock: ${p.current_stock} ${p.unit} • ₹${Number(p.selling_price).toFixed(2)}`,
           path: `/products?search=${encodeURIComponent(p.sku)}`,
           icon: Package,
         })
@@ -109,7 +125,7 @@ export default function CommandPalette() {
         items.push({
           type: 'Supplier',
           title: s.name,
-          subtitle: `Contact: ${s.contact_person || s.email || 'Vendor'} &bull; Lead Time: ${s.lead_time_days || 7}d`,
+          subtitle: `Contact: ${s.contact_person || s.email || 'Vendor'} • Lead Time: ${s.lead_time_days || 7}d`,
           path: `/suppliers?search=${encodeURIComponent(s.name)}`,
           icon: Truck,
         })

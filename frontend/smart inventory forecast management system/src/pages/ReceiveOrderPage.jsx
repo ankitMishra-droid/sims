@@ -1,44 +1,43 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useSelector, useDispatch } from 'react-redux'
-import {
-  Inbox,
-  CheckCircle2,
-  AlertTriangle,
-  Check,
-  Package,
-} from 'lucide-react'
+import { CheckCircle2, Send, AlertTriangle, RefreshCw, Inbox } from 'lucide-react'
 import {
   selectAllPurchaseOrders,
   selectPurchaseOrdersLoading,
   fetchPurchaseOrders,
+  sendPurchaseOrder,
   receivePurchaseOrder,
-  partiallyReceivePOItem,
 } from '../store/purchaseOrdersSlice'
 import { selectAllProducts, fetchProducts } from '../store/productsSlice'
 import { selectAllSuppliers, fetchSuppliers } from '../store/suppliersSlice'
-import ErpControlPanel from '../components/common/ErpControlPanel'
-import DataTable from '../components/common/DataTable'
-import Badge from '../components/Badge'
+import { showToast } from '../store/uiSlice'
+import { api } from '../api'
+import PageHeader from '../components/common/PageHeader'
 import SearchableSelect from '../components/common/SearchableSelect'
+import Badge from '../components/Badge'
+import { EmptyState } from '../components/common/StateBlocks'
+
+function newReceiptKey() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return `gr-${crypto.randomUUID()}`
+  return `gr-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
 
 export default function ReceiveOrderPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const navigate = useNavigate()
   const dispatch = useDispatch()
-
   const orders = useSelector(selectAllPurchaseOrders)
   const loading = useSelector(selectPurchaseOrdersLoading)
   const products = useSelector(selectAllProducts)
   const suppliers = useSelector(selectAllSuppliers)
 
   const [selectedOrderId, setSelectedOrderId] = useState(searchParams.get('order_id') || '')
-  const [receivingItemId, setReceivingItemId] = useState(null)
-  const [receivingAll, setReceivingAll] = useState(false)
-  const [formError, setFormError] = useState('')
-
-  // State for quantity to receive per line item: { [itemId]: number }
   const [receiveQuantities, setReceiveQuantities] = useState({})
+  const [receiptNotes, setReceiptNotes] = useState('')
+  const [receiptsHistory, setReceiptsHistory] = useState([])
+  const [submitting, setSubmitting] = useState(false)
+  const [formError, setFormError] = useState('')
+  const [idemKey, setIdemKey] = useState(() => newReceiptKey())
 
   useEffect(() => {
     dispatch(fetchPurchaseOrders())
@@ -46,443 +45,299 @@ export default function ReceiveOrderPage() {
     dispatch(fetchSuppliers())
   }, [dispatch])
 
-  // If no order selected, pick first active pending order
-  useEffect(() => {
-    const pendingOrders = orders.filter((o) =>
-      ['DRAFT', 'SENT', 'PARTIALLY_RECEIVED'].includes(o.status)
-    )
-    if (!selectedOrderId && pendingOrders.length > 0) {
-      const firstId = String(pendingOrders[0].id)
-      setSelectedOrderId(firstId)
-      setSearchParams({ order_id: firstId })
-    }
-  }, [orders, selectedOrderId, setSearchParams])
-
-  // Current selected order
-  const selectedOrder = useMemo(() => {
-    if (!selectedOrderId) return null
-    return orders.find((o) => o.id === parseInt(selectedOrderId, 10)) || null
+  const activeOrderId = useMemo(() => {
+    if (selectedOrderId) return selectedOrderId
+    const open = orders.find((o) => ['SENT', 'PARTIALLY_RECEIVED', 'DRAFT'].includes(o.status))
+    return open ? String(open.id) : ''
   }, [orders, selectedOrderId])
 
-  // Initialize line item quantities to remaining
-  useEffect(() => {
-    if (selectedOrder?.items) {
-      const initialQtys = {}
-      selectedOrder.items.forEach((item) => {
-        const rem = Math.max(0, item.ordered_quantity - item.received_quantity)
-        initialQtys[item.id] = rem
-      })
-      setReceiveQuantities(initialQtys)
+  const selectedOrder = useMemo(
+    () => orders.find((o) => String(o.id) === String(activeOrderId)) || null,
+    [orders, activeOrderId]
+  )
+
+  const loadReceipts = useCallback(async (orderId) => {
+    if (!orderId) {
+      setReceiptsHistory([])
+      return
     }
-  }, [selectedOrder])
+    try {
+      const list = await api.getGoodsReceipts(orderId)
+      setReceiptsHistory(list)
+    } catch {
+      setReceiptsHistory([])
+    }
+  }, [])
 
-  const handleSelectOrder = (orderId) => {
-    setSelectedOrderId(orderId)
-    setSearchParams({ order_id: orderId })
-    setFormError('')
-  }
+  useEffect(() => {
+    if (!selectedOrder?.id) return undefined
+    const id = setTimeout(() => {
+      loadReceipts(selectedOrder.id)
+    }, 0)
+    return () => clearTimeout(id)
+  }, [selectedOrder?.id, loadReceipts])
 
-  // Memoized searchable PO options
-  const orderOptions = useMemo(() => {
-    return [
-      { value: '', label: '-- Choose Purchase Order --' },
-      ...orders.map((o) => {
+  const orderOptions = useMemo(
+    () =>
+      orders.map((o) => {
         const supp = suppliers.find((s) => s.id === o.supplier_id)
         return {
           value: o.id,
-          label: `PO-${String(o.id).padStart(4, '0')}`,
-          subLabel: `${supp?.name || `Vendor #${o.supplier_id}`} • ${o.items?.length || 0} line items`,
+          label: o.order_number || `PO-${String(o.id).padStart(4, '0')}`,
+          subLabel: `${supp?.name || `Supplier #${o.supplier_id}`} • ${(o.items || []).length} lines`,
           badge: o.status,
-          meta: `₹${Number(o.total_amount || 0).toLocaleString()}`,
+          meta: `₹${Number(o.total_amount || 0).toFixed(2)}`,
         }
       }),
-    ]
-  }, [orders, suppliers])
+    [orders, suppliers]
+  )
 
-  const handleQtyChange = (itemId, val) => {
-    const num = parseInt(val, 10)
-    setReceiveQuantities((prev) => ({
-      ...prev,
-      [itemId]: isNaN(num) ? '' : num,
-    }))
+  const handleSelectOrder = (val) => {
+    setSelectedOrderId(String(val))
+    setReceiveQuantities({})
+    setFormError('')
+    setIdemKey(newReceiptKey())
+    setSearchParams(val ? { order_id: String(val) } : {})
   }
 
-  // Receive single line item
-  const handleReceiveLine = async (item) => {
-    const qtyToReceive = parseInt(receiveQuantities[item.id], 10)
+  const handleQtyChange = (itemId, val) => {
+    const parsed = val === '' ? '' : parseInt(val, 10)
+    setReceiveQuantities((prev) => ({ ...prev, [itemId]: isNaN(parsed) ? '' : parsed }))
+  }
 
-    if (!qtyToReceive || qtyToReceive <= 0) {
-      setFormError('Please enter a quantity greater than 0.')
+  const handleSubmitReceipt = async (e) => {
+    e.preventDefault()
+    if (!selectedOrder) return
+    setFormError('')
+
+    const itemsPayload = []
+    for (const item of selectedOrder.items || []) {
+      const remaining = Math.max(0, item.ordered_quantity - item.received_quantity)
+      if (remaining === 0) continue
+      const raw = receiveQuantities[item.id] !== undefined ? receiveQuantities[item.id] : remaining
+      const qty = parseInt(raw, 10) || 0
+      if (qty > remaining) {
+        setFormError(`Quantity for line #${item.id} (${qty}) exceeds remaining due (${remaining}).`)
+        return
+      }
+      if (qty > 0) {
+        itemsPayload.push({ purchase_order_item_id: item.id, received_quantity: qty })
+      }
+    }
+
+    if (itemsPayload.length === 0) {
+      setFormError('Enter a received quantity greater than 0 for at least one outstanding item.')
       return
     }
 
-    setReceivingItemId(item.id)
-    setFormError('')
-
-    const res = await dispatch(
-      partiallyReceivePOItem({
-        orderId: selectedOrder.id,
-        payload: {
-          purchase_order_item_id: item.id,
-          received_quantity: qtyToReceive,
-        },
-      })
-    )
-
-    if (partiallyReceivePOItem.rejected.match(res)) {
-      setFormError(res.payload || 'Failed to receive line item.')
+    setSubmitting(true)
+    try {
+      await api.createGoodsReceipt(
+        selectedOrder.id,
+        { items: itemsPayload, notes: receiptNotes.trim() || null },
+        idemKey
+      )
+      dispatch(showToast('Goods Received', 'Inventory and stock ledger updated.', 'success'))
+      setReceiveQuantities({})
+      setReceiptNotes('')
+      setIdemKey(newReceiptKey())
+      await dispatch(fetchPurchaseOrders())
+      await dispatch(fetchProducts())
+      await loadReceipts(selectedOrder.id)
+    } catch (err) {
+      setFormError(err.message || 'Goods receipt failed.')
+    } finally {
+      setSubmitting(false)
     }
-    setReceivingItemId(null)
   }
 
-  // Receive entire order
   const handleReceiveAll = async () => {
     if (!selectedOrder) return
-    setReceivingAll(true)
+    setSubmitting(true)
     setFormError('')
-
     const res = await dispatch(receivePurchaseOrder(selectedOrder.id))
     if (receivePurchaseOrder.rejected.match(res)) {
       setFormError(res.payload || 'Failed to receive order.')
+    } else {
+      await loadReceipts(selectedOrder.id)
     }
-    setReceivingAll(false)
+    setSubmitting(false)
   }
 
-  // Progress metrics
-  const progressMetrics = useMemo(() => {
-    if (!selectedOrder || !selectedOrder.items) return { total: 0, received: 0, percent: 0 }
-    const total = selectedOrder.items.reduce((acc, i) => acc + i.ordered_quantity, 0)
-    const received = selectedOrder.items.reduce((acc, i) => acc + i.received_quantity, 0)
-    const percent = total > 0 ? Math.round((received / total) * 100) : 0
-    return { total, received, percent }
-  }, [selectedOrder])
-
-  const supplier = suppliers.find((s) => s.id === selectedOrder?.supplier_id)
-
-  // Columns for line items
-  const columns = useMemo(
-    () => [
-      {
-        key: 'product',
-        label: 'Item & Product',
-        sortable: false,
-        render: (item) => {
-          const prod = products.find((p) => p.id === item.product_id)
-          return (
-            <div>
-              <div style={{ fontWeight: 600, color: 'var(--erp-text-main)' }}>
-                {prod ? prod.name : `Product #${item.product_id}`}
-              </div>
-              <span
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.75rem',
-                  color: 'var(--erp-brand)',
-                  backgroundColor: 'var(--erp-brand-subtle)',
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                }}
-              >
-                {prod ? prod.sku : `ID: ${item.product_id}`}
-              </span>
-            </div>
-          )
-        },
-      },
-      {
-        key: 'category',
-        label: 'Category',
-        sortable: false,
-        render: (item) => {
-          const prod = products.find((p) => p.id === item.product_id)
-          return prod?.category || 'General'
-        },
-      },
-      {
-        key: 'ordered_quantity',
-        label: 'Ordered Units',
-        numeric: true,
-        sortable: true,
-        render: (item) => {
-          const prod = products.find((p) => p.id === item.product_id)
-          return `${item.ordered_quantity} ${prod?.unit || ''}`
-        },
-      },
-      {
-        key: 'received_quantity',
-        label: 'Received So Far',
-        numeric: true,
-        sortable: true,
-        render: (item) => {
-          const prod = products.find((p) => p.id === item.product_id)
-          return (
-            <span style={{ color: '#059669', fontWeight: 700 }}>
-              {item.received_quantity} {prod?.unit || ''}
-            </span>
-          )
-        },
-      },
-      {
-        key: 'remaining',
-        label: 'Remaining Due',
-        numeric: true,
-        sortable: true,
-        render: (item) => {
-          const prod = products.find((p) => p.id === item.product_id)
-          const remaining = Math.max(0, item.ordered_quantity - item.received_quantity)
-          return (
-            <span style={{ color: remaining > 0 ? '#d97706' : '#10b981', fontWeight: 800 }}>
-              {remaining} {prod?.unit || ''}
-            </span>
-          )
-        },
-      },
-      {
-        key: 'input_qty',
-        label: 'Quantity to Receive Now',
-        sortable: false,
-        render: (item) => {
-          const remaining = Math.max(0, item.ordered_quantity - item.received_quantity)
-          const isFullyReceived = remaining === 0
-          const currentVal = receiveQuantities[item.id] !== undefined ? receiveQuantities[item.id] : remaining
-
-          if (isFullyReceived) {
-            return (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#16a34a', fontSize: '0.8rem', fontWeight: 600 }}>
-                <CheckCircle2 size={16} /> Fully Received
-              </div>
-            )
-          }
-
-          return (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <input
-                type="number"
-                min="1"
-                max={remaining}
-                className="form-control numeric"
-                style={{ width: '90px', padding: '0.35rem 0.5rem' }}
-                value={currentVal}
-                onChange={(e) => handleQtyChange(item.id, e.target.value)}
-              />
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => handleQtyChange(item.id, remaining)}
-                title="Fill maximum remaining"
-                style={{ padding: '0.35rem 0.55rem' }}
-              >
-                Max
-              </button>
-            </div>
-          )
-        },
-      },
-      {
-        key: 'action',
-        label: 'Action',
-        center: true,
-        sortable: false,
-        render: (item) => {
-          const remaining = Math.max(0, item.ordered_quantity - item.received_quantity)
-          const isFullyReceived = remaining === 0
-          const isReceivingThis = receivingItemId === item.id
-          const currentVal = receiveQuantities[item.id] !== undefined ? receiveQuantities[item.id] : remaining
-
-          if (isFullyReceived) {
-            return <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Complete</span>
-          }
-
-          return (
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={() => handleReceiveLine(item)}
-              disabled={isReceivingThis || currentVal <= 0}
-            >
-              <Check size={13} />
-              <span>{isReceivingThis ? 'Saving...' : 'Confirm Line'}</span>
-            </button>
-          )
-        },
-      },
-    ],
-    [products, receiveQuantities, receivingItemId]
-  )
+  const canReceive = selectedOrder && ['SENT', 'PARTIALLY_RECEIVED'].includes(selectedOrder.status)
 
   return (
-    <div className="receive-order-page">
-      {/* Action Control Panel */}
-      <ErpControlPanel
-        moduleName="Warehouse Inbound"
-        activePage="Receive Order Items"
-        itemCount={selectedOrder?.items?.length || 0}
-        primaryAction={
-          selectedOrder && ['DRAFT', 'SENT', 'PARTIALLY_RECEIVED'].includes(selectedOrder.status)
-            ? {
-                label: receivingAll ? 'Receiving...' : 'Receive All Lines at Once',
-                icon: CheckCircle2,
-                onClick: handleReceiveAll,
-                id: 'btn-receive-all-items',
-              }
-            : null
-        }
-        onRefresh={() => dispatch(fetchPurchaseOrders())}
-        loading={loading}
-        filters={
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', width: '100%', maxWidth: '650px' }}>
-            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--erp-text-main)', whiteSpace: 'nowrap' }}>
-              Select Inbound Order:
-            </span>
-            <div style={{ flex: 1 }}>
-              <SearchableSelect
-                options={orderOptions}
-                value={selectedOrderId}
-                onChange={(val) => handleSelectOrder(val)}
-                placeholder="Search PO by ID, supplier, or status..."
-                id="select-po-to-receive"
-              />
-            </div>
-          </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <PageHeader
+        title="Receive Orders (Goods Receipt)"
+        subtitle="Verify delivered quantities and record partial or full receipts into inventory."
+        actions={
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => dispatch(fetchPurchaseOrders())} disabled={loading}>
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            <span>Refresh</span>
+          </button>
         }
       />
 
-      {/* Backend Error Banner */}
+      <div className="section-card" style={{ maxWidth: '540px' }}>
+        <label className="form-label" style={{ marginBottom: '0.4rem', display: 'block' }}>
+          Select Purchase Order
+        </label>
+        <SearchableSelect
+          options={orderOptions}
+          value={activeOrderId}
+          onChange={handleSelectOrder}
+          placeholder="Search PO..."
+        />
+      </div>
+
       {formError && (
-        <div className="form-error-banner" style={{ marginBottom: '1.25rem' }}>
-          <AlertTriangle size={20} style={{ flexShrink: 0 }} />
-          <div>
-            <strong>Backend Rule Violation:</strong> {formError}
-          </div>
+        <div className="form-error-banner">
+          <AlertTriangle size={18} />
+          <div>{formError}</div>
         </div>
       )}
 
       {!selectedOrder ? (
-        <div className="table-card empty-state">
-          <div className="empty-state-icon">
-            <Inbox size={32} />
-          </div>
-          <div className="empty-state-title">Select a purchase order to receive</div>
-          <p className="empty-state-desc">
-            Choose an order from the dropdown above to inspect incoming items and record received quantities.
-          </p>
-        </div>
+        <EmptyState
+          title="No purchase order selected"
+          description="Select a sent or partially received purchase order to record inbound goods."
+          icon={Inbox}
+        />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          {/* Header Card: Order Metadata & Status */}
-          <div
-            style={{
-              background: 'var(--erp-surface)',
-              border: '1px solid var(--erp-border)',
-              borderRadius: '8px',
-              padding: '1.25rem 1.5rem',
-              boxShadow: 'var(--shadow-xs)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '1rem',
-              transition: 'background-color 0.25s ease, border-color 0.25s ease',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                flexWrap: 'wrap',
-                gap: '1rem',
-                borderBottom: '1px solid var(--erp-border)',
-                paddingBottom: '0.85rem',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-                <div
-                  style={{
-                    width: '44px',
-                    height: '44px',
-                    borderRadius: '8px',
-                    backgroundColor: 'var(--erp-brand-subtle)',
-                    color: 'var(--erp-brand)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontWeight: 800,
-                  }}
-                >
-                  <Inbox size={22} />
-                </div>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <h2 style={{ fontSize: '1.25rem', color: 'var(--erp-brand)', margin: 0 }}>
-                      PO-{String(selectedOrder.id).padStart(4, '0')}
-                    </h2>
-                    <Badge status={selectedOrder.status} />
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--erp-text-muted)', marginTop: '2px' }}>
-                    Order Date: {new Date(selectedOrder.order_date).toLocaleDateString()}
-                  </div>
-                </div>
+        <>
+          <div className="section-card" style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <strong style={{ fontSize: '1.1rem', fontFamily: 'var(--font-mono)' }}>
+                  {selectedOrder.order_number || `PO-${String(selectedOrder.id).padStart(4, '0')}`}
+                </strong>
+                <Badge status={selectedOrder.status} />
               </div>
-
-              {/* Inbound Completion Progress */}
-              <div style={{ minWidth: '220px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.775rem', marginBottom: '0.25rem' }}>
-                  <span style={{ color: 'var(--erp-text-muted)' }}>Receipt Progress:</span>
-                  <strong style={{ color: progressMetrics.percent === 100 ? '#10b981' : 'var(--erp-brand)' }}>
-                    {progressMetrics.received} of {progressMetrics.total} units ({progressMetrics.percent}%)
-                  </strong>
-                </div>
-                <div style={{ height: '8px', backgroundColor: 'var(--erp-border)', borderRadius: '999px', overflow: 'hidden' }}>
-                  <div
-                    style={{
-                      height: '100%',
-                      width: `${progressMetrics.percent}%`,
-                      backgroundColor: progressMetrics.percent === 100 ? '#10b981' : 'var(--erp-brand)',
-                      transition: 'width 0.3s ease',
-                    }}
-                  />
-                </div>
+              <div style={{ fontSize: '0.82rem', color: 'var(--erp-text-muted)', marginTop: '4px' }}>
+                Supplier: {suppliers.find((s) => s.id === selectedOrder.supplier_id)?.name || `#${selectedOrder.supplier_id}`} •
+                Total: ₹{Number(selectedOrder.total_amount || 0).toFixed(2)}
               </div>
             </div>
 
-            {/* Vendor & Schedule Details */}
-            <div className="form-grid">
-              <div>
-                <span style={{ fontSize: '0.75rem', color: 'var(--erp-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-                  Vendor / Supplier
-                </span>
-                <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--erp-text-main)' }}>
-                  {supplier?.name || `Supplier #${selectedOrder.supplier_id}`}
-                </div>
-                {supplier?.email && (
-                  <div style={{ fontSize: '0.775rem', color: 'var(--erp-text-muted)' }}>{supplier.email}</div>
-                )}
-              </div>
+            {selectedOrder.status === 'DRAFT' && (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => dispatch(sendPurchaseOrder(selectedOrder.id))}
+              >
+                <Send size={14} />
+                <span>Send PO Before Receiving</span>
+              </button>
+            )}
 
-              <div>
-                <span style={{ fontSize: '0.75rem', color: 'var(--erp-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-                  Expected Delivery
-                </span>
-                <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--erp-text-main)' }}>
-                  {selectedOrder.expected_delivery_date
-                    ? new Date(selectedOrder.expected_delivery_date).toLocaleDateString()
-                    : 'Flexible schedule'}
-                </div>
-              </div>
-            </div>
+            {canReceive && (
+              <button type="button" className="btn btn-secondary btn-sm" onClick={handleReceiveAll} disabled={submitting}>
+                <CheckCircle2 size={14} />
+                <span>Receive All Remaining</span>
+              </button>
+            )}
           </div>
 
-          {/* Reusable Data Table for Line Items */}
-          <DataTable
-            columns={columns}
-            data={selectedOrder.items || []}
-            keyField="id"
-            defaultPageSize={10}
-            loading={loading}
-            emptyTitle="No items in this order"
-            emptyMessage="There are no line items attached to this purchase order."
-            emptyIcon={Inbox}
-          />
-        </div>
+          <form className="section-card" onSubmit={handleSubmitReceipt} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div className="table-responsive">
+              <table className="erp-table">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th className="numeric">Ordered</th>
+                    <th className="numeric">Received</th>
+                    <th className="numeric">Remaining</th>
+                    <th className="numeric">Receive Now</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(selectedOrder.items || []).map((item) => {
+                    const prod = products.find((p) => p.id === item.product_id)
+                    const remaining = Math.max(0, item.ordered_quantity - item.received_quantity)
+                    const val = receiveQuantities[item.id] !== undefined ? receiveQuantities[item.id] : remaining
+                    return (
+                      <tr key={item.id}>
+                        <td>
+                          <strong>{prod?.name || `Product #${item.product_id}`}</strong>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--erp-text-muted)' }}>{prod?.sku}</div>
+                        </td>
+                        <td className="numeric">{item.ordered_quantity}</td>
+                        <td className="numeric">{item.received_quantity}</td>
+                        <td className="numeric" style={{ fontWeight: 700, color: remaining > 0 ? '#d97706' : '#059669' }}>
+                          {remaining}
+                        </td>
+                        <td className="numeric">
+                          {remaining === 0 ? (
+                            <span style={{ color: '#059669', fontSize: '0.8rem', fontWeight: 600 }}>Complete</span>
+                          ) : (
+                            <input
+                              type="number"
+                              min="0"
+                              max={remaining}
+                              disabled={!canReceive}
+                              className="form-control numeric"
+                              style={{ width: '96px', marginLeft: 'auto' }}
+                              value={val}
+                              onChange={(e) => handleQtyChange(item.id, e.target.value)}
+                            />
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {canReceive && (
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+                <input
+                  type="text"
+                  className="form-control"
+                  style={{ flex: '1 1 260px' }}
+                  placeholder="Delivery note / challan number (optional)..."
+                  value={receiptNotes}
+                  onChange={(e) => setReceiptNotes(e.target.value)}
+                />
+                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                  <CheckCircle2 size={15} />
+                  <span>{submitting ? 'Recording Receipt...' : 'Confirm Goods Receipt'}</span>
+                </button>
+              </div>
+            )}
+          </form>
+
+          {receiptsHistory.length > 0 && (
+            <section className="section-card">
+              <h2 className="section-card-title" style={{ marginBottom: '0.75rem' }}>
+                Recorded Receipts ({receiptsHistory.length})
+              </h2>
+              <div className="table-responsive">
+                <table className="erp-table">
+                  <thead>
+                    <tr>
+                      <th>Receipt #</th>
+                      <th>Date</th>
+                      <th>Lines Received</th>
+                      <th>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {receiptsHistory.map((gr) => (
+                      <tr key={gr.id}>
+                        <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{gr.receipt_number}</td>
+                        <td>{new Date(gr.received_at).toLocaleString()}</td>
+                        <td>{gr.items.map((i) => `${i.quantity_received}x #${i.product_id}`).join(', ')}</td>
+                        <td>{gr.notes || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+        </>
       )}
     </div>
   )

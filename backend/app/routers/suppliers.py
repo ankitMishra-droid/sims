@@ -1,137 +1,123 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Annotated, Optional
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
 
-from .. import models,schemas
+from .. import schemas
 from ..database import get_db
+from ..dependencies.authorization import BusinessContext, require_business_roles
+from ..services.supplier_service import SupplierService
 
 router = APIRouter(prefix="/api/suppliers", tags=["Suppliers"])
 
-# create supplier
+READ_ROLES = ["admin", "manager", "analyst", "staff"]
+WRITE_ROLES = ["admin", "manager"]
+
+
 @router.post("/", response_model=schemas.SupplierCreateResponse)
-def create_supplier(payload: schemas.SupplierCreate, db: Session = Depends(get_db)):
-    existing_supplier = db.query(models.Supplier).filter(
-        or_(models.Supplier.email == payload.email, models.Supplier.name == payload.name)
-    ).first()
-
-    if existing_supplier:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Supplier with this email or name already exists"
-        )
-
-    supplier = models.Supplier(**payload.model_dump())
-    db.add(supplier)
-    db.commit()
-    db.refresh(supplier)
-
-    return {
-        "data": supplier,
-        "message": "supplier created successfully"
-    }
-
-# get supplier 
-@router.get("/", response_model=schemas.SupplierListResponse)
-def get_suppliers(db: Session = Depends(get_db)):
-    supplier_details = db.query(models.Supplier).filter(models.Supplier.is_active.is_(True)).order_by(models.Supplier.name).all()
-
-    if not supplier_details:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No active suppliers found"
-        )
-
-    return {
-        "data": supplier_details,
-        "message": "all suppliers detail fetched"
-    }
-
-# get specific supplier by their id
-@router.get("/{supplier_id}", response_model=schemas.SupplierResponse)
-def get_spplier_by_id(supplier_id: int, db: Session = Depends(get_db)):
-    supplier = db.query(models.Supplier).filter(models.Supplier.id == supplier_id).first()
-
-    if not supplier:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Supplier not found"
-        )
-
-    return {
-        "data": supplier,
-        "message": "supplier detail fetched successfully"
-    }
-
-# update supplier by id
-@router.put("/{supplier_id}", response_model=schemas.SupplierResponse)
-def update_supplier(supplier_id: int, payload: schemas.SupplierUpdate, db: Session = Depends(get_db)):
-    supplier = db.query(models.Supplier).filter(models.Supplier.id == supplier_id).first()
-
-    if not supplier:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Supplier not found"
-        )
-
-    for field, value in payload.model_dump(exclude_unset=True).items():
-        setattr(supplier, field, value)
-
-    db.commit()
-    db.refresh(supplier)
-
-    return {
-        "data": supplier,
-        "message": "supplier updated"
-    }
-
-# deactivate supplier
-@router.patch("/{supplier_id}", response_model=schemas.SupplierResponse)
-def deactivate_supplier(supplier_id: int, db: Session = Depends(get_db)):
-    supplier = db.query(models.Supplier).filter(models.Supplier.id == supplier_id).first()
-
-    if not supplier:
-        raise(HTTPException(status_code=404, detail="supplier not found"))
-
-    if not supplier.is_active:
-        raise(HTTPException(status_code=400, detail="supplier is already deactivated"))
-
-    supplier.is_active = False
-    
-    db.commit()
-    db.refresh(supplier)
-
-    return {
-        "data": supplier,
-        "message": "supplier deactivated"
-    }
-
-# activate supplier
-@router.patch("/{supplier_id}/activate", response_model=schemas.SupplierResponse)
-def activate_supplier(supplier_id: int, db: Session = Depends(get_db)):
-    supplier = (
-        db.query(models.Supplier)
-        .filter(models.Supplier.id == supplier_id)
-        .first()
+def create_supplier(
+    payload: schemas.SupplierCreate,
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(WRITE_ROLES)),
+):
+    supplier = SupplierService.create_supplier(
+        db=db,
+        business_id=ctx.business_id,
+        payload=payload,
     )
+    return {"data": supplier, "message": "Supplier created successfully"}
 
-    if not supplier:
-        raise HTTPException(
-            status_code=404,
-            detail="Supplier not found"
-        )
 
-    if supplier.is_active:
-        raise HTTPException(
-            status_code=400,
-            detail="Supplier is already active"
-        )
+@router.get("/", response_model=schemas.SupplierListResponse)
+def get_suppliers(
+    search: Annotated[Optional[str], Query()] = None,
+    is_active: Annotated[Optional[bool], Query()] = True,
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(READ_ROLES)),
+):
+    items, total = SupplierService.list_suppliers(
+        db=db,
+        business_id=ctx.business_id,
+        search=search,
+        is_active=is_active,
+        skip=skip,
+        limit=limit,
+    )
+    return {"data": items, "total": total, "message": "All suppliers fetched"}
 
-    supplier.is_active = True
 
-    db.commit()
-    db.refresh(supplier)
+@router.get("/{supplier_id}", response_model=schemas.SupplierResponse)
+def get_supplier_by_id(
+    supplier_id: int,
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(READ_ROLES)),
+):
+    supplier = SupplierService.get_supplier(
+        db=db,
+        business_id=ctx.business_id,
+        supplier_id=supplier_id,
+    )
+    return {"data": supplier, "message": "Supplier fetched successfully"}
 
-    return {
-        "data": supplier,
-        "message": "Supplier activated successfully"
-    }
+
+@router.put("/{supplier_id}", response_model=schemas.SupplierResponse)
+def update_supplier(
+    supplier_id: int,
+    payload: schemas.SupplierUpdate,
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(WRITE_ROLES)),
+):
+    supplier = SupplierService.update_supplier(
+        db=db,
+        business_id=ctx.business_id,
+        supplier_id=supplier_id,
+        payload=payload,
+    )
+    return {"data": supplier, "message": "Supplier updated"}
+
+
+@router.patch("/{supplier_id}", response_model=schemas.SupplierResponse)
+def deactivate_supplier(
+    supplier_id: int,
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(WRITE_ROLES)),
+):
+    supplier = SupplierService.set_active_status(
+        db=db,
+        business_id=ctx.business_id,
+        supplier_id=supplier_id,
+        is_active=False,
+    )
+    return {"data": supplier, "message": "Supplier deactivated"}
+
+
+@router.patch("/{supplier_id}/activate", response_model=schemas.SupplierResponse)
+def activate_supplier(
+    supplier_id: int,
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(WRITE_ROLES)),
+):
+    supplier = SupplierService.set_active_status(
+        db=db,
+        business_id=ctx.business_id,
+        supplier_id=supplier_id,
+        is_active=True,
+    )
+    return {"data": supplier, "message": "Supplier activated successfully"}
+
+
+@router.patch("/{supplier_id}/link-workspace", response_model=schemas.SupplierResponse)
+def link_supplier_workspace(
+    supplier_id: int,
+    payload: schemas.SupplierLinkWorkspaceRequest,
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(WRITE_ROLES)),
+):
+    supplier = SupplierService.link_workspace(
+        db=db,
+        business_id=ctx.business_id,
+        supplier_id=supplier_id,
+        supplier_business_id=payload.supplier_business_id,
+    )
+    return {"data": supplier, "message": "Supplier workspace link updated"}

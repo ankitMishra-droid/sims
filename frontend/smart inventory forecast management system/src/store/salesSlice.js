@@ -1,13 +1,13 @@
 import { createSlice, createAsyncThunk, createSelector } from '@reduxjs/toolkit'
-import { api } from '../api'
-import { fetchProducts } from './productsSlice'
-import { showToast } from './uiSlice'
+import { api } from '../api.js'
+import { fetchProducts } from './productsSlice.js'
+import { showToast } from './uiSlice.js'
 
 export const fetchSales = createAsyncThunk(
   'sales/fetchSales',
-  async (_, { rejectWithValue }) => {
+  async (params = { limit: 100 }, { rejectWithValue }) => {
     try {
-      const data = await api.getSales()
+      const data = await api.getSales(params)
       return data || []
     } catch (err) {
       return rejectWithValue(err.message)
@@ -17,11 +17,13 @@ export const fetchSales = createAsyncThunk(
 
 export const recordSale = createAsyncThunk(
   'sales/recordSale',
-  async (payload, { dispatch, rejectWithValue }) => {
+  async (arg, { dispatch, rejectWithValue }) => {
     try {
-      const res = await api.createSale(payload)
+      const actualPayload = arg?.payload || arg
+      const idempotencyKey = arg?.idempotencyKey || null
+      const res = await api.createSale(actualPayload, idempotencyKey)
       dispatch(showToast('Sale Recorded', `Successfully recorded sale. Revenue: ₹${Number(res.data.revenue).toFixed(2)}`, 'success'))
-      dispatch(fetchSales())
+      dispatch(fetchSales({ limit: 100 }))
       dispatch(fetchProducts())
       return res.data
     } catch (err) {

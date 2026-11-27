@@ -1,11 +1,11 @@
-import React, { useState, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { Bar } from 'react-chartjs-2'
 import { useSelector } from 'react-redux'
 import { Boxes } from 'lucide-react'
 import { getChartTheme } from './ChartSetup'
 import ChartCard from './ChartCard'
 
-export default function StockMovementChart({ sales = [], purchaseOrders = [], products = [] }) {
+export default function StockMovementChart({ sales = [], purchaseOrders = [] }) {
   const theme = useSelector((state) => state.ui.theme)
   const isDark = theme === 'dark'
   const chartColors = getChartTheme(isDark)
@@ -174,8 +174,9 @@ export default function StockMovementChart({ sales = [], purchaseOrders = [], pr
       sortable: true,
       render: (row) => (
         <span
+          className="tabular-nums"
           style={{
-            fontWeight: 700,
+            fontWeight: 'var(--font-weight-semibold)',
             color: row.netDelta > 0 ? '#10b981' : row.netDelta < 0 ? '#ef4444' : 'var(--erp-text-muted)',
           }}
         >
@@ -190,10 +191,10 @@ export default function StockMovementChart({ sales = [], purchaseOrders = [], pr
       render: (row) => (
         <span
           style={{
-            fontSize: '0.7rem',
+            fontSize: 'var(--text-xs)',
             padding: '2px 8px',
             borderRadius: '4px',
-            fontWeight: 600,
+            fontWeight: 'var(--font-weight-medium)',
             background:
               row.netDelta > 0
                 ? 'var(--status-success-bg)'

@@ -1,12 +1,14 @@
 import os
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
 from pathlib import Path
 from dotenv import load_dotenv
-
-load_dotenv()
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import sessionmaker, declarative_base
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
+load_dotenv(BASE_DIR.parent / ".env")
+
 DEFAULT_DB_FILE = (BASE_DIR / "inventory.db").as_posix()
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DEFAULT_DB_FILE}")
 
@@ -19,26 +21,29 @@ elif DATABASE_URL.startswith("postgresql://") and not DATABASE_URL.startswith("p
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={'check_same_thread': False} if DATABASE_URL.startswith('sqlite') else {},
-    pool_pre_ping=True
+    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+    pool_pre_ping=True,
 )
+
+
+@event.listens_for(Engine, "connect")
+def _set_sqlite_pragma(dbapi_connection, connection_record):
+    # Enforce foreign key constraints and busy timeout per SQLite connection.
+    if dbapi_connection.__class__.__module__.startswith("sqlite3"):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.close()
+
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 base = declarative_base()
 
+
 def get_db():
-    # STEP 1: Setup
     db = SessionLocal()
-    print("1. Database connection opened!")
     try:
-        # STEP 2: Handoff
         yield db
-        # ⏸️ The function PAUSES right here! 
-        # FastAPI takes this 'db' session and hands it to your API route.
-        # Your API route runs its code, reads/writes data, and finishes.
     finally:
-        # STEP 3: Cleanup
-        # ▶️ The API route is done! FastAPI jumps back here to resume.
         db.close()
-        print("3. Database connection closed safely!")

@@ -1,117 +1,96 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Annotated
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from .. import models
 from .. import schemas
-from ..services import stock_service
+from ..dependencies.authorization import BusinessContext, require_business_roles
+from ..services.inventory_service import InventoryService
 
-router = APIRouter(
-    prefix="/api/inventory",
-    tags=["Inventory"]
-)
+router = APIRouter(prefix="/api/inventory", tags=["Inventory"])
+
+READ_ROLES = ["admin", "manager", "analyst", "staff"]
+WRITE_ROLES = ["admin", "manager"]
 
 
-# Add Stock
 @router.post("/stock-in")
 def add_stock(
     stock: schemas.StockInCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(WRITE_ROLES)),
 ):
-    product = (
-        db.query(models.Product)
-        .filter(models.Product.id == stock.product_id)
-        .first()
+    return InventoryService.stock_in(
+        db=db,
+        business_id=ctx.business_id,
+        user_id=ctx.user.id,
+        payload=stock,
     )
 
-    if not product:
-        raise HTTPException(
-            status_code=404,
-            detail="Product not found"
-        )
 
-    if stock.quantity <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail="Quantity must be greater than 0"
-        )
-
-    # Update stock
-    product.current_stock += stock.quantity
-    # stock_service.increase_stock(
-    #     db=db,
-    #     product_id=product.id,
-    #     quantity=stock.quantity,
-    #     reason=stock.reason
-    # )
-
-    # Create inventory log
-    log = models.InventoryLog(
-        product_id=product.id,
-        stock_in=stock.quantity,
-        stock_out=0,
-        closing_stock=product.current_stock,
-        reason=stock.reason
+@router.post("/adjust")
+def adjust_stock(
+    adjustment: schemas.StockAdjustmentCreate,
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(WRITE_ROLES)),
+):
+    return InventoryService.adjust_stock(
+        db=db,
+        business_id=ctx.business_id,
+        user_id=ctx.user.id,
+        allow_negative=bool(ctx.business.allow_negative_stock),
+        payload=adjustment,
     )
 
-    db.add(log)
 
-    db.commit()
-    db.refresh(log)
-
-    return {
-        "message": "Stock added successfully",
-        "product_id": product.id,
-        "added_quantity": stock.quantity,
-        "current_stock": product.current_stock
-    }
+@router.get("/positions", response_model=list[schemas.InventoryPositionOut])
+def get_all_inventory_positions(
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(READ_ROLES)),
+):
+    return InventoryService.get_inventory_positions(db=db, business_id=ctx.business_id)
 
 
-# Get Inventory History
-@router.get(
-    "/logs/{product_id}",
-    response_model=list[schemas.InventoryLogOut]
-)
+@router.get("/positions/{product_id}", response_model=schemas.InventoryPositionOut)
+def get_product_inventory_position(
+    product_id: int,
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(READ_ROLES)),
+):
+    positions = InventoryService.get_inventory_positions(
+        db=db,
+        business_id=ctx.business_id,
+        product_id=product_id,
+    )
+    return positions[0]
+
+
+@router.get("/logs/{product_id}", response_model=list[schemas.InventoryLogOut])
 def get_inventory_logs(
     product_id: int,
-    db: Session = Depends(get_db)
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(READ_ROLES)),
 ):
-
-    product = (
-        db.query(models.Product)
-        .filter(models.Product.id == product_id)
-        .first()
+    return InventoryService.get_logs(
+        db=db,
+        business_id=ctx.business_id,
+        product_id=product_id,
+        skip=skip,
+        limit=limit,
     )
 
-    if not product:
-        raise HTTPException(
-            status_code=404,
-            detail="Product not found"
-        )
 
-    get_history = (
-        db.query(models.InventoryLog)
-        .filter(models.InventoryLog.product_id == product_id)
-        .order_by(models.InventoryLog.timestamp.desc())
-        .all()
-    )
-
-    return get_history
-
-
-# Low Stock Products
 @router.get("/low-stock", response_model=schemas.LowStockResponse)
-def get_low_stock_products(db: Session = Depends(get_db)):
-
-    low_stock_products = (
-        db.query(models.Product)
-        .filter(
-            models.Product.current_stock <= models.Product.reorder_level
-        )
-        .all()
+def get_low_stock_products(
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(READ_ROLES)),
+):
+    low_stock_products = InventoryService.get_low_stock_products(
+        db=db,
+        business_id=ctx.business_id,
     )
-
     return {
         "data": low_stock_products,
-        "message": "Low stock products fetched successfully"
+        "message": "Low stock products fetched successfully",
     }

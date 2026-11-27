@@ -1,124 +1,151 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Annotated, Optional
+from fastapi import APIRouter, Depends, Header, Query
 from sqlalchemy.orm import Session
 
 from .. import schemas
 from ..database import get_db
-from .. import models
-from ..services import stock_service
+from ..dependencies.authorization import BusinessContext, require_business_roles
+from ..services.sales_service import SalesService
 
-router = APIRouter(prefix="/api/sales", tags=['Sales'])
+router = APIRouter(prefix="/api/sales", tags=["Sales"])
 
-# Sales Creation
+READ_ROLES = ["admin", "manager", "analyst", "staff"]
+CREATE_ROLES = ["admin", "manager", "staff"]
+MANAGE_ROLES = ["admin", "manager"]
+
+
 @router.post("/", response_model=schemas.SaleResponse)
-def create_sale(sale: schemas.SaleCreate, db: Session = Depends(get_db)):
-    product = db.query(models.Product).filter(models.Product.id == sale.product_id).first()
-
-    if not product:
-        raise HTTPException(status_code=404, detail="product not found")
-
-    if sale.quantity_sold <= 0:
-        raise HTTPException(status_code=400, detail="Quantity must be greater than 0")
-
-    if sale.quantity_sold > product.current_stock:
-        raise HTTPException(status_code=400, detail="Insufficient stock")
-
-    price = sale.selling_price if sale.selling_price is not None else product.selling_price
-
-    revenue = price * sale.quantity_sold
-
-    db_sale = models.Sale(
-        product_id = product.id,
-        quantity_sold = sale.quantity_sold,
-        selling_price = price,
-        revenue = revenue
+def create_sale(
+    sale: schemas.SaleCreate,
+    idempotency_key: Annotated[Optional[str], Header(alias="Idempotency-Key")] = None,
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(CREATE_ROLES)),
+):
+    db_sale = SalesService.create_sale(
+        db=db,
+        business_id=ctx.business_id,
+        user_id=ctx.user.id,
+        allow_negative_stock=bool(ctx.business.allow_negative_stock),
+        payload=sale,
+        idempotency_key=idempotency_key,
     )
+    return {"data": db_sale, "message": "Product sold"}
 
-    product.current_stock -= sale.quantity_sold
-    # stock_service.decrease_stock(
-    #     db=db,
-    #     product_id=product.id,
-    #     quantity=sale.quantity_sold,
-    #     reason="sale"
-    # )
 
-    db.add(db_sale)
-
-    db.add(models.InventoryLog(
-        product_id = product.id,
-        stock_out = sale.quantity_sold,
-        closing_stock = product.current_stock,
-        reason = "sale"
-    ))
-
-    db.commit()
-    db.refresh(db_sale)
-
-    return {
-        "data": db_sale,
-        "message": "product sold"
-    }
-
-# Fetch all sales data
 @router.get("/", response_model=schemas.SaleListResponse)
-def get_sales(db: Session = Depends(get_db)):
-    sale = db.query(models.Sale).order_by(models.Sale.sales_date.desc()).all()
+def get_sales(
+    product_id: Annotated[Optional[int], Query()] = None,
+    start_date: Annotated[Optional[str], Query()] = None,
+    end_date: Annotated[Optional[str], Query()] = None,
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=5000)] = 500,
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(READ_ROLES)),
+):
+    items, total = SalesService.list_sales(
+        db=db,
+        business_id=ctx.business_id,
+        product_id=product_id,
+        start_date=start_date,
+        end_date=end_date,
+        skip=skip,
+        limit=limit,
+    )
+    return {"data": items, "total": total, "message": "Sales fetched successfully"}
 
-    if not sale:
-        raise HTTPException(status_code=404, detail="sale product not found")
 
-    return {
-        "data": sale,
-        "message": "all product sales data fetched"
-    }
-
-# fetch specific sale product
 @router.get("/product/{product_id}", response_model=schemas.SaleResponse)
-def get_sale_by_product(product_id: int, db: Session = Depends(get_db)):
-    sale = db.query(models.Sale).filter(models.Sale.product_id == product_id).order_by(models.Sale.sales_date.desc()).first()
+def get_sale_by_product(
+    product_id: int,
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(READ_ROLES)),
+):
+    items, _ = SalesService.list_sales(
+        db=db,
+        business_id=ctx.business_id,
+        product_id=product_id,
+        limit=1,
+    )
+    if not items:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Sale not found for product")
+    return {"data": items[0], "message": "Sale product fetched"}
 
-    if not sale:
-        raise HTTPException(status_code=404, detail="sale product not found")
 
-    return {
-        "data": sale,
-        "message": f"sale product fetched"
-    }
-
-# fetch sales data for a specific date
 @router.get("/date/{date}", response_model=schemas.SaleListResponse)
-def get_sales_by_date(date: str, db: Session = Depends(get_db)):
-    sale = db.query(models.Sale).filter(models.Sale.sales_date == date).all()
+def get_sales_by_date(
+    date: str,
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(READ_ROLES)),
+):
+    items, total = SalesService.list_sales(
+        db=db,
+        business_id=ctx.business_id,
+        start_date=date,
+        end_date=date,
+        limit=1000,
+    )
+    return {"data": items, "total": total, "message": "Sales fetched"}
 
-    if not sale:
-        raise HTTPException(status_code=404, detail="sale product not found")
 
-    return {
-        "data": sale,
-        "message": f"sale product fetched"
-    }
-
-# fetch sales data for a specific date range
 @router.get("/date-range/", response_model=schemas.SaleListResponse)
-def get_sales_by_date_range(start_date: str, end_date: str, db: Session = Depends(get_db)):
-    sale = db.query(models.Sale).filter(models.Sale.sales_date >= start_date, models.Sale.sales_date <= end_date).all()
+def get_sales_by_date_range(
+    start_date: str,
+    end_date: str,
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(READ_ROLES)),
+):
+    items, total = SalesService.list_sales(
+        db=db,
+        business_id=ctx.business_id,
+        start_date=start_date,
+        end_date=end_date,
+        limit=2000,
+    )
+    return {"data": items, "total": total, "message": "Sales fetched"}
 
-    if not sale:
-        raise HTTPException(status_code=404, detail="sale product not found")
 
-    return {
-        "data": sale,
-        "message": f"sale product fetched"
-    }
-
-# fetch sales data for a specific product and date range
 @router.get("/product-date-range/", response_model=schemas.SaleListResponse)
-def get_sales_by_product_and_date_range(product_id: int, start_date: str, end_date: str, db: Session = Depends(get_db)):
-    sale = db.query(models.Sale).filter(models.Sale.product_id == product_id, models.Sale.sales_date >= start_date, models.Sale.sales_date <= end_date).all()
+def get_sales_by_product_and_date_range(
+    product_id: int,
+    start_date: str,
+    end_date: str,
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(READ_ROLES)),
+):
+    items, total = SalesService.list_sales(
+        db=db,
+        business_id=ctx.business_id,
+        product_id=product_id,
+        start_date=start_date,
+        end_date=end_date,
+        limit=2000,
+    )
+    return {"data": items, "total": total, "message": "Sales fetched"}
 
-    if not sale:
-        raise HTTPException(status_code=404, detail="sale product not found")
 
-    return {
-        "data": sale,
-        "message": f"sale product fetched"
-    }
+@router.get("/{sale_id}", response_model=schemas.SaleResponse)
+def get_sale(
+    sale_id: int,
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(READ_ROLES)),
+):
+    sale = SalesService.get_sale(db=db, business_id=ctx.business_id, sale_id=sale_id)
+    return {"data": sale, "message": "Sale fetched successfully"}
+
+
+@router.post("/{sale_id}/cancel", response_model=schemas.SaleResponse)
+def cancel_sale(
+    sale_id: int,
+    payload: schemas.SaleCancelRequest = schemas.SaleCancelRequest(),
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(MANAGE_ROLES)),
+):
+    sale = SalesService.cancel_sale(
+        db=db,
+        business_id=ctx.business_id,
+        user_id=ctx.user.id,
+        sale_id=sale_id,
+        reason=payload.reason,
+    )
+    return {"data": sale, "message": "Sale cancelled and stock restored"}

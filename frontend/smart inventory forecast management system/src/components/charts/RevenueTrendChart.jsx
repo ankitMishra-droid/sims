@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { Line } from 'react-chartjs-2'
 import { useSelector } from 'react-redux'
 import { TrendingUp } from 'lucide-react'
@@ -44,7 +44,7 @@ export default function RevenueTrendChart({ sales = [] }) {
     ;(sales || []).forEach((s) => {
       const rawDate = s.sales_date || s.sale_date || s.created_at
       if (!rawDate) return
-      let dateKey = null
+      let dateKey
       if (typeof rawDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(rawDate)) {
         dateKey = rawDate.substring(0, 10)
       } else {
@@ -53,7 +53,10 @@ export default function RevenueTrendChart({ sales = [] }) {
         dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
       }
 
-      const rev = Number(s.revenue) || (Number(s.selling_price || 0) * Number(s.quantity_sold || 0)) || 0
+      const rev =
+        Number(s.total_price ?? s.revenue) ||
+        Number(s.selling_price || 0) * Number(s.quantity_sold || 0) ||
+        0
 
       if (bucketMap.has(dateKey)) {
         const b = bucketMap.get(dateKey)
@@ -70,11 +73,10 @@ export default function RevenueTrendChart({ sales = [] }) {
     })
 
     // 3. Compute growth rate
-    let growth = 12.5
     const mid = Math.floor(pts.length / 2)
     const firstHalf = pts.slice(0, mid).reduce((a, b) => a + b, 0) || 1
     const secondHalf = pts.slice(mid).reduce((a, b) => a + b, 0)
-    growth = Math.round(((secondHalf - firstHalf) / firstHalf) * 100)
+    let growth = Math.round(((secondHalf - firstHalf) / firstHalf) * 100)
     if (isNaN(growth)) growth = 0
 
     // 4. Generate granular tracking rows for table tracking
@@ -120,7 +122,7 @@ export default function RevenueTrendChart({ sales = [] }) {
       numeric: true,
       sortable: true,
       render: (row) => (
-        <span style={{ fontWeight: 700, color: row.revenue > 0 ? '#10b981' : 'var(--erp-text-muted)' }}>
+        <span className="tabular-nums" style={{ fontWeight: 'var(--font-weight-semibold)', color: row.revenue > 0 ? '#10b981' : 'var(--erp-text-muted)' }}>
           ₹{Number(row.revenue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </span>
       ),
@@ -131,7 +133,7 @@ export default function RevenueTrendChart({ sales = [] }) {
       numeric: true,
       sortable: true,
       render: (row) => (
-        <span style={{ fontWeight: 600 }}>{row.orders}</span>
+        <span className="tabular-nums" style={{ fontWeight: 'var(--font-weight-semibold)' }}>{row.orders}</span>
       ),
     },
     {
@@ -140,7 +142,7 @@ export default function RevenueTrendChart({ sales = [] }) {
       numeric: true,
       sortable: true,
       render: (row) => (
-        <span>₹{Number(row.aov).toFixed(2)}</span>
+        <span className="tabular-nums">₹{Number(row.aov).toFixed(2)}</span>
       ),
     },
     {
@@ -150,10 +152,10 @@ export default function RevenueTrendChart({ sales = [] }) {
       render: (row) => (
         <span
           style={{
-            fontSize: '0.7rem',
+            fontSize: 'var(--text-xs)',
             padding: '2px 8px',
             borderRadius: '4px',
-            fontWeight: 600,
+            fontWeight: 'var(--font-weight-medium)',
             background: row.orders > 0 ? 'var(--status-success-bg)' : 'var(--erp-surface-subtle)',
             color: row.orders > 0 ? 'var(--status-success-text)' : 'var(--erp-text-muted)',
             border: `1px solid ${row.orders > 0 ? 'var(--status-success-border)' : 'var(--erp-border)'}`,

@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { Bar } from 'react-chartjs-2'
 import { useSelector } from 'react-redux'
-import { Award, Filter } from 'lucide-react'
+import { Award } from 'lucide-react'
 import { getChartTheme } from './ChartSetup'
 import ChartCard from './ChartCard'
 
@@ -62,7 +62,10 @@ export default function TopProductsChart({ sales = [], products = [] }) {
 
     sales.forEach((s) => {
       const pid = s.product_id
-      const rev = Number(s.revenue) || (Number(s.selling_price || 0) * Number(s.quantity_sold || 0)) || 0
+      const rev =
+        Number(s.total_price ?? s.revenue) ||
+        Number(s.selling_price || 0) * Number(s.quantity_sold || 0) ||
+        0
       const qty = Number(s.quantity_sold) || 0
 
       if (!prodMap.has(pid)) {
@@ -87,7 +90,7 @@ export default function TopProductsChart({ sales = [], products = [] }) {
         sku: prod?.sku || '—',
         category: prod?.category || 'General',
         currentStock: Number(prod?.current_stock) || 0,
-        minStock: Number(prod?.min_stock_level) || 0,
+        minStock: Number(prod?.reorder_level ?? prod?.min_stock_level) || 0,
         revenue: Math.round(item.revenue * 100) / 100,
         unitsSold: item.unitsSold,
       }
@@ -148,8 +151,9 @@ export default function TopProductsChart({ sales = [], products = [] }) {
       sortable: true,
       render: (r) => (
         <span
+          className="tabular-nums"
           style={{
-            fontWeight: 800,
+            fontWeight: 'var(--font-weight-semibold)',
             color: r.rank === 1 ? '#f59e0b' : r.rank === 2 ? '#94a3b8' : r.rank === 3 ? '#d97706' : 'var(--erp-text-muted)',
           }}
         >
@@ -165,7 +169,7 @@ export default function TopProductsChart({ sales = [], products = [] }) {
       label: 'Units Sold',
       numeric: true,
       sortable: true,
-      render: (r) => <span style={{ fontWeight: 600 }}>{r.unitsSold.toLocaleString()}</span>,
+      render: (r) => <span className="tabular-nums" style={{ fontWeight: 'var(--font-weight-semibold)' }}>{r.unitsSold.toLocaleString()}</span>,
     },
     {
       key: 'revenue',
@@ -173,7 +177,7 @@ export default function TopProductsChart({ sales = [], products = [] }) {
       numeric: true,
       sortable: true,
       render: (r) => (
-        <span style={{ fontWeight: 700, color: '#10b981' }}>
+        <span className="tabular-nums" style={{ fontWeight: 'var(--font-weight-semibold)', color: '#10b981' }}>
           ₹{r.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </span>
       ),
@@ -183,7 +187,7 @@ export default function TopProductsChart({ sales = [], products = [] }) {
       label: 'Remaining Stock',
       numeric: true,
       sortable: true,
-      render: (r) => <span>{r.currentStock} units</span>,
+      render: (r) => <span className="tabular-nums">{r.currentStock} units</span>,
     },
     {
       key: 'stockStatus',
@@ -195,10 +199,10 @@ export default function TopProductsChart({ sales = [], products = [] }) {
         return (
           <span
             style={{
-              fontSize: '0.7rem',
+              fontSize: 'var(--text-xs)',
               padding: '2px 8px',
               borderRadius: '4px',
-              fontWeight: 600,
+              fontWeight: 'var(--font-weight-medium)',
               background: isOut
                 ? 'var(--status-danger-bg)'
                 : isLow

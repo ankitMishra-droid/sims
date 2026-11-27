@@ -1,5 +1,3 @@
-import React from 'react'
-
 export default function Badge({ status, label, className = '' }) {
   const norm = String(status || '').toUpperCase()
 

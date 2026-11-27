@@ -27,6 +27,23 @@ ChartJS.register(
   Filler
 )
 
+export const DEFAULT_CHART_FONT_FAMILY =
+  "'Inter', 'Noto Sans Devanagari', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+
+export const syncChartTypography = () => {
+  const rootFont =
+    typeof window !== 'undefined' && typeof document !== 'undefined'
+      ? window.getComputedStyle(document.documentElement).fontFamily
+      : ''
+  ChartJS.defaults.font.family = rootFont && rootFont.trim() ? rootFont : DEFAULT_CHART_FONT_FAMILY
+  ChartJS.defaults.font.size = 12
+  ChartJS.defaults.font.weight = '500'
+  ChartJS.defaults.font.lineHeight = 1.4
+  return ChartJS.defaults.font.family
+}
+
+syncChartTypography()
+
 export const getChartTheme = (isDark = false) => {
   return {
     textColor: isDark ? '#9ca3af' : '#64748b',

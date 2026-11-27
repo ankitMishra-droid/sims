@@ -1,4 +1,3 @@
-import React from 'react'
 import { Download } from 'lucide-react'
 
 export default function CsvExportButton({ data = [], filename = 'export', columns = [], title = 'Export CSV' }) {

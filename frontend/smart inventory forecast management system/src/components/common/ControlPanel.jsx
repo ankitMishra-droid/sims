@@ -1,4 +1,3 @@
-import React from 'react'
 import { Search, RefreshCw, List, LayoutGrid } from 'lucide-react'
 import CsvExportButton from './CsvExportButton'
 

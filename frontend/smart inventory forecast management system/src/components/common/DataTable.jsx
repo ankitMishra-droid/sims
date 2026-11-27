@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import {
   ChevronLeft,
   ChevronRight,
@@ -23,7 +23,6 @@ export default function DataTable({
   emptyMessage = 'There are no items matching your criteria.',
   emptyIcon: EmptyIcon = FolderOpen,
   onRowClick = null,
-  actions = null,
 }) {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(defaultPageSize)

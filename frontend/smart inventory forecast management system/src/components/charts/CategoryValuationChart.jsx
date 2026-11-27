@@ -1,15 +1,11 @@
-import React, { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { Doughnut } from 'react-chartjs-2'
 import { useSelector } from 'react-redux'
 import {
   PieChart as PieIcon,
-  Check,
-  CheckSquare,
-  Square,
   Filter,
   RotateCcw,
   Layers,
-  Sparkles,
 } from 'lucide-react'
 import { getChartTheme } from './ChartSetup'
 import ChartCard from './ChartCard'
@@ -120,19 +116,6 @@ export default function CategoryValuationChart({ products = [] }) {
     setSelectedMap(updated)
   }, [allCategories])
 
-  // Isolate a single category
-  const handleSelectOnly = useCallback(
-    (catName, e) => {
-      e?.stopPropagation()
-      const updated = {}
-      allCategories.forEach((c) => {
-        updated[c.name] = c.name === catName
-      })
-      setSelectedMap(updated)
-    },
-    [allCategories]
-  )
-
   // Filtered categories for the chart
   const selectedCategories = useMemo(() => {
     return allCategories.filter((c) => activeSelected[c.name] !== false)
@@ -147,7 +130,7 @@ export default function CategoryValuationChart({ products = [] }) {
   }, [allCategories, selectedCategories, onlySelected])
 
   // Totals of currently selected categories
-  const { totalSelectedValue, totalSelectedCount, totalAllValue, totalAllCount } = useMemo(() => {
+  const { totalSelectedValue, totalSelectedCount, totalAllValue } = useMemo(() => {
     let selVal = 0
     let selCnt = 0
     let allVal = 0
@@ -296,7 +279,7 @@ export default function CategoryValuationChart({ products = [] }) {
     const currentVal = mode === 'value' ? totalSelectedValue : totalSelectedCount
 
     // Compact formatted large amount
-    let formatted = ''
+    let formatted
     if (mode === 'value') {
       if (currentVal >= 10000000) {
         formatted = `₹${(currentVal / 10000000).toFixed(2)} Cr`
@@ -553,16 +536,16 @@ export default function CategoryValuationChart({ products = [] }) {
           >
             <div
               style={{
-                fontSize: '0.675rem',
+                fontSize: 'var(--text-xs)',
                 color: hoveredCategory ? centerMetric.color : 'var(--erp-text-muted)',
                 textTransform: 'uppercase',
-                fontWeight: 700,
-                letterSpacing: '0.4px',
+                fontWeight: 'var(--font-weight-semibold)',
+                letterSpacing: 'var(--tracking-wide)',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 maxWidth: '120px',
-                lineHeight: 1.2,
+                lineHeight: 'var(--leading-tight)',
                 marginBottom: '2px',
               }}
             >
@@ -570,12 +553,13 @@ export default function CategoryValuationChart({ products = [] }) {
             </div>
 
             <div
+              className="tabular-nums"
               style={{
-                fontSize: '1.15rem',
-                fontWeight: 800,
+                fontSize: 'var(--text-lg)',
+                fontWeight: 'var(--font-weight-semibold)',
                 color: 'var(--erp-text-main)',
-                lineHeight: 1.15,
-                letterSpacing: '-0.3px',
+                lineHeight: 'var(--leading-tight)',
+                letterSpacing: 'var(--tracking-tight)',
               }}
             >
               {centerMetric.value}
@@ -583,9 +567,9 @@ export default function CategoryValuationChart({ products = [] }) {
 
             <div
               style={{
-                fontSize: '0.65rem',
+                fontSize: 'var(--text-xs)',
                 color: 'var(--erp-text-muted)',
-                fontWeight: 600,
+                fontWeight: 'var(--font-weight-medium)',
                 marginTop: '3px',
                 whiteSpace: 'nowrap',
               }}

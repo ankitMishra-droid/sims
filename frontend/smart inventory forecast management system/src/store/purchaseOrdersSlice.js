@@ -1,7 +1,7 @@
 import { createSlice, createAsyncThunk, createSelector } from '@reduxjs/toolkit'
-import { api } from '../api'
-import { fetchProducts } from './productsSlice'
-import { showToast } from './uiSlice'
+import { api } from '../api.js'
+import { fetchProducts } from './productsSlice.js'
+import { showToast } from './uiSlice.js'
 
 export const fetchPurchaseOrders = createAsyncThunk(
   'purchaseOrders/fetchPurchaseOrders',
@@ -37,6 +37,20 @@ export const cancelPurchaseOrder = createAsyncThunk(
       dispatch(showToast('Order Cancelled', `PO #${orderId} marked as CANCELLED.`, 'info'))
       dispatch(fetchPurchaseOrders())
       return orderId
+    } catch (err) {
+      return rejectWithValue(err.message)
+    }
+  }
+)
+
+export const sendPurchaseOrder = createAsyncThunk(
+  'purchaseOrders/sendPurchaseOrder',
+  async (orderId, { dispatch, rejectWithValue }) => {
+    try {
+      const res = await api.sendPurchaseOrder(orderId)
+      dispatch(showToast('Order Sent', `PO #${orderId} sent to supplier.`, 'success'))
+      dispatch(fetchPurchaseOrders())
+      return res
     } catch (err) {
       return rejectWithValue(err.message)
     }

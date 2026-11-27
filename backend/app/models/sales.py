@@ -1,55 +1,40 @@
 from sqlalchemy import (
+    CheckConstraint,
     Column,
-    Integer,
     DateTime,
-    String,
     Float,
-    Boolean,
     ForeignKey,
-    func
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
 )
 from sqlalchemy.orm import relationship
 from ..database import base
 
-# sales model
+
 class Sale(base):
     __tablename__ = "sales"
-
-    id = Column(
-        Integer,
-        primary_key=True,
-        index=True
+    __table_args__ = (
+        Index("ix_sales_biz_prod_date", "business_id", "product_id", "sales_date"),
+        UniqueConstraint("business_id", "idempotency_key", name="uq_sale_business_idempotency"),
+        CheckConstraint("quantity_sold > 0", name="ck_sale_qty_gt_zero"),
+        CheckConstraint("selling_price >= 0", name="ck_sale_price_non_negative"),
+        CheckConstraint("revenue >= 0", name="ck_sale_revenue_non_negative"),
     )
 
-    product_id = Column(
-        Integer,
-        ForeignKey("products.id"),
-        nullable=False
-    )
+    id = Column(Integer, primary_key=True, index=True)
+    business_id = Column(Integer, ForeignKey("businesses.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    sales_date = Column(DateTime, server_default=func.now(), index=True)
+    quantity_sold = Column(Integer, nullable=False)
+    selling_price = Column(Float, nullable=False)
+    revenue = Column(Float, nullable=False)
+    status = Column(String(20), nullable=False, default="COMPLETED")
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    idempotency_key = Column(String(120), nullable=True)
+    notes = Column(Text, nullable=True)
 
-    sales_date = Column(
-        DateTime,
-        server_default=func.now()
-    )
-
-    quantity_sold = Column(
-        Integer,
-        nullable=False
-    )
-
-    selling_price = Column(
-        Float,
-        nullable=False
-    )
-
-    revenue = Column(
-        Float,
-        nullable=False
-    )
-
-    # Many Sales -> One Product
-    product = relationship(
-        "Product",
-        back_populates="sales"
-    )
-
+    product = relationship("Product", back_populates="sales")

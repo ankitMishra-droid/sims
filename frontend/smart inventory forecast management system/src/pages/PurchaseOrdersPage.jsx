@@ -1,55 +1,47 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useSelector, useDispatch } from 'react-redux'
-import {
-  ClipboardList,
-  Plus,
-  Trash2,
-  Calendar,
-  Eye,
-  CheckCircle,
-  XCircle,
-  Clock,
-  Inbox,
-  AlertTriangle,
-} from 'lucide-react'
+import { Plus, Trash2, Eye, Send, XCircle, Inbox, RefreshCw, AlertTriangle, Share2 } from 'lucide-react'
+import { addToast } from '../store/uiSlice'
 import {
   selectAllPurchaseOrders,
   selectPurchaseOrdersLoading,
+  selectPurchaseOrdersError,
   fetchPurchaseOrders,
   createPurchaseOrder,
+  sendPurchaseOrder,
   cancelPurchaseOrder,
-  receivePurchaseOrder,
 } from '../store/purchaseOrdersSlice'
 import { selectAllProducts, fetchProducts } from '../store/productsSlice'
 import { selectAllSuppliers, fetchSuppliers } from '../store/suppliersSlice'
-import ErpControlPanel from '../components/common/ErpControlPanel'
+import { api } from '../api'
+import PageHeader from '../components/common/PageHeader'
 import DataTable from '../components/common/DataTable'
 import SearchableSelect from '../components/common/SearchableSelect'
+import CsvExportButton from '../components/common/CsvExportButton'
 import Modal from '../components/Modal'
 import Badge from '../components/Badge'
+import { ErrorState, ConfirmDialog } from '../components/common/StateBlocks'
 
 export default function PurchaseOrdersPage() {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
   const dispatch = useDispatch()
+  const [searchParams] = useSearchParams()
 
   const orders = useSelector(selectAllPurchaseOrders)
   const loading = useSelector(selectPurchaseOrdersLoading)
+  const error = useSelector(selectPurchaseOrdersError)
   const products = useSelector(selectAllProducts)
   const suppliers = useSelector(selectAllSuppliers)
 
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
-
-  // Modals state
   const [isCreateOpen, setIsCreateOpen] = useState(false)
-  const [selectedOrder, setSelectedOrder] = useState(null)
-  const [isDetailOpen, setIsDetailOpen] = useState(false)
+  const [detailOrder, setDetailOrder] = useState(null)
+  const [detailReceipts, setDetailReceipts] = useState([])
+  const [cancelTarget, setCancelTarget] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
-
-  // Create PO Form State
   const [poForm, setPoForm] = useState({
     supplier_id: '',
     expected_delivery_date: '',
@@ -63,59 +55,20 @@ export default function PurchaseOrdersPage() {
     dispatch(fetchSuppliers())
   }, [dispatch])
 
-  // Check if supplier_id was passed in URL query
-  useEffect(() => {
-    const qSupplierId = searchParams.get('supplier_id')
-    if (qSupplierId && suppliers.length > 0) {
-      openCreateModal(qSupplierId)
-    }
-  }, [searchParams, suppliers])
-
-  // Filtered orders
-  const filteredOrders = useMemo(() => {
-    return orders.filter((o) => {
-      const supp = suppliers.find((s) => s.id === o.supplier_id)
-      const q = searchQuery.toLowerCase().trim()
-
-      const matchesSearch =
-        !q ||
-        String(o.id).includes(q) ||
-        (supp && supp.name.toLowerCase().includes(q)) ||
-        (o.notes && o.notes.toLowerCase().includes(q))
-
-      const matchesStatus = statusFilter === 'ALL' || o.status === statusFilter
-
-      return matchesSearch && matchesStatus
-    })
-  }, [orders, suppliers, searchQuery, statusFilter])
-
-  // Open Create Modal
   const openCreateModal = useCallback(
     (presetSupplierId = null) => {
       const suppId = presetSupplierId || (suppliers[0] ? String(suppliers[0].id) : '')
-      const selectedSupp = suppliers.find((s) => s.id === parseInt(suppId, 10))
-      const leadDays = selectedSupp?.lead_time_days || 7
-
-      const delivery = new Date()
-      delivery.setDate(delivery.getDate() + leadDays)
-      const expectedStr = delivery.toISOString().split('T')[0]
-
-      const defaultProduct = products[0]
-      const initialItems = defaultProduct
-        ? [
-            {
-              product_id: defaultProduct.id,
-              ordered_quantity: 50,
-              unit_cost: defaultProduct.cost_price || 10,
-            },
-          ]
-        : []
-
+      const supp = suppliers.find((s) => String(s.id) === String(suppId))
+      const d = new Date()
+      d.setDate(d.getDate() + (supp?.lead_time_days || 7))
+      const defaultProd = products[0]
       setPoForm({
         supplier_id: suppId,
-        expected_delivery_date: expectedStr,
+        expected_delivery_date: d.toISOString().split('T')[0],
         notes: '',
-        items: initialItems,
+        items: defaultProd
+          ? [{ product_id: defaultProd.id, ordered_quantity: 25, unit_cost: defaultProd.cost_price || 0 }]
+          : [],
       })
       setFormError('')
       setIsCreateOpen(true)
@@ -123,63 +76,47 @@ export default function PurchaseOrdersPage() {
     [suppliers, products]
   )
 
-  // Line item manipulation
-  const addLineItem = () => {
-    const firstProd = products[0]
-    if (!firstProd) return
-    setPoForm((prev) => ({
-      ...prev,
-      items: [
-        ...prev.items,
-        {
-          product_id: firstProd.id,
-          ordered_quantity: 10,
-          unit_cost: firstProd.cost_price || 0,
-        },
-      ],
-    }))
+  useEffect(() => {
+    const qSupp = searchParams.get('supplier_id')
+    if (qSupp && suppliers.length > 0) {
+      const timer = setTimeout(() => openCreateModal(qSupp), 0)
+      return () => clearTimeout(timer)
+    }
+  }, [searchParams, suppliers.length, openCreateModal])
+
+  const openDetailModal = async (order) => {
+    setDetailOrder(order)
+    setDetailReceipts([])
+    try {
+      const recs = await api.getGoodsReceipts(order.id)
+      setDetailReceipts(recs)
+    } catch {
+      setDetailReceipts([])
+    }
   }
 
-  const removeLineItem = (index) => {
-    setPoForm((prev) => ({
-      ...prev,
-      items: prev.items.filter((_, i) => i !== index),
-    }))
-  }
-
-  const updateLineItem = (index, field, value) => {
-    setPoForm((prev) => {
-      const updated = [...prev.items]
-      const current = { ...updated[index] }
-
-      if (field === 'product_id') {
-        const prod = products.find((p) => p.id === parseInt(value, 10))
-        current.product_id = parseInt(value, 10)
-        if (prod) current.unit_cost = prod.cost_price || 0
-      } else if (field === 'ordered_quantity') {
-        current.ordered_quantity = parseInt(value, 10) || 1
-      } else if (field === 'unit_cost') {
-        current.unit_cost = parseFloat(value) || 0
-      }
-
-      updated[index] = current
-      return { ...prev, items: updated }
+  const filteredOrders = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim()
+    return orders.filter((o) => {
+      const supp = suppliers.find((s) => s.id === o.supplier_id)
+      const matchSearch =
+        !q ||
+        (o.order_number || '').toLowerCase().includes(q) ||
+        String(o.id).includes(q) ||
+        (supp && supp.name.toLowerCase().includes(q)) ||
+        (o.notes && o.notes.toLowerCase().includes(q))
+      const matchStatus = statusFilter === 'ALL' || o.status === statusFilter
+      return matchSearch && matchStatus
     })
-  }
-
-  const orderTotal = useMemo(() => {
-    return poForm.items.reduce((acc, item) => {
-      return acc + (item.ordered_quantity || 0) * (item.unit_cost || 0)
-    }, 0)
-  }, [poForm.items])
+  }, [orders, suppliers, searchQuery, statusFilter])
 
   const supplierOptions = useMemo(
     () =>
       suppliers.map((s) => ({
         value: s.id,
         label: s.name,
-        subLabel: `Lead time: ${s.lead_time_days || 7} days • ${s.email || ''}`,
-        badge: `ID #${s.id}`,
+        subLabel: `Lead time: ${s.lead_time_days || 7}d`,
+        badge: `#${s.id}`,
       })),
     [suppliers]
   )
@@ -189,44 +126,70 @@ export default function PurchaseOrdersPage() {
       products.map((p) => ({
         value: p.id,
         label: p.name,
-        subLabel: `Current Stock: ${p.current_stock} ${p.unit} • ${p.category || 'General'}`,
+        subLabel: `Stock: ${p.current_stock} ${p.unit}`,
         badge: p.sku,
         meta: `₹${Number(p.cost_price || 0).toFixed(2)}`,
       })),
     [products]
   )
 
-  // Submit PO
+  const addLineItem = () => {
+    const p = products[0]
+    if (!p) return
+    setPoForm((prev) => ({
+      ...prev,
+      items: [...prev.items, { product_id: p.id, ordered_quantity: 10, unit_cost: p.cost_price || 0 }],
+    }))
+  }
+
+  const updateLineItem = (idx, field, val) => {
+    setPoForm((prev) => {
+      const next = [...prev.items]
+      const row = { ...next[idx] }
+      if (field === 'product_id') {
+        const pid = parseInt(val, 10)
+        const prod = products.find((p) => p.id === pid)
+        row.product_id = pid
+        if (prod) row.unit_cost = prod.cost_price || 0
+      } else if (field === 'ordered_quantity') {
+        row.ordered_quantity = parseInt(val, 10) || 1
+      } else if (field === 'unit_cost') {
+        row.unit_cost = parseFloat(val) || 0
+      }
+      next[idx] = row
+      return { ...prev, items: next }
+    })
+  }
+
+  const previewTotal = poForm.items.reduce(
+    (sum, i) => sum + (Number(i.ordered_quantity) || 0) * (Number(i.unit_cost) || 0),
+    0
+  )
+
   const handleCreateSubmit = async (e) => {
     e.preventDefault()
-    setSubmitting(true)
     setFormError('')
-
-    const suppId = parseInt(poForm.supplier_id, 10)
-    if (!suppId) {
+    if (!poForm.supplier_id) {
       setFormError('Please select a supplier.')
-      setSubmitting(false)
       return
     }
-
     if (!poForm.items.length) {
-      setFormError('At least one line item is required.')
-      setSubmitting(false)
+      setFormError('Add at least one product line.')
       return
     }
-
-    const payload = {
-      supplier_id: suppId,
-      expected_delivery_date: poForm.expected_delivery_date || null,
-      notes: poForm.notes.trim() || null,
-      items: poForm.items.map((i) => ({
-        product_id: parseInt(i.product_id, 10),
-        ordered_quantity: parseInt(i.ordered_quantity, 10),
-        unit_cost: parseFloat(i.unit_cost),
-      })),
-    }
-
-    const res = await dispatch(createPurchaseOrder(payload))
+    setSubmitting(true)
+    const res = await dispatch(
+      createPurchaseOrder({
+        supplier_id: parseInt(poForm.supplier_id, 10),
+        expected_delivery_date: poForm.expected_delivery_date || null,
+        notes: poForm.notes.trim() || null,
+        items: poForm.items.map((i) => ({
+          product_id: parseInt(i.product_id, 10),
+          ordered_quantity: parseInt(i.ordered_quantity, 10),
+          unit_cost: parseFloat(i.unit_cost),
+        })),
+      })
+    )
     if (createPurchaseOrder.rejected.match(res)) {
       setFormError(res.payload || 'Failed to create purchase order.')
     } else {
@@ -235,44 +198,23 @@ export default function PurchaseOrdersPage() {
     setSubmitting(false)
   }
 
-  // Cancel PO
-  const handleCancel = async (orderId) => {
-    if (!window.confirm(`Cancel Purchase Order #${orderId}?`)) return
-    await dispatch(cancelPurchaseOrder(orderId))
-    if (selectedOrder?.id === orderId) setIsDetailOpen(false)
+  const handleConfirmCancel = async () => {
+    if (!cancelTarget) return
+    setSubmitting(true)
+    await dispatch(cancelPurchaseOrder(cancelTarget.id))
+    setCancelTarget(null)
+    setSubmitting(false)
   }
 
-  // Receive Full PO
-  const handleReceiveFull = async (orderId) => {
-    await dispatch(receivePurchaseOrder(orderId))
-    if (selectedOrder?.id === orderId) setIsDetailOpen(false)
-  }
-
-  const openDetail = (order) => {
-    setSelectedOrder(order)
-    setIsDetailOpen(true)
-  }
-
-  // Columns definition
   const columns = useMemo(
     () => [
       {
         key: 'id',
-        label: 'PO Ref',
+        label: 'PO Number',
         sortable: true,
         render: (o) => (
-          <span
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontWeight: 700,
-              color: 'var(--erp-brand)',
-              backgroundColor: 'var(--erp-brand-subtle)',
-              padding: '2px 8px',
-              borderRadius: '4px',
-              fontSize: '0.825rem',
-            }}
-          >
-            PO-{String(o.id).padStart(4, '0')}
+          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--erp-brand)' }}>
+            {o.order_number || `PO-${String(o.id).padStart(4, '0')}`}
           </span>
         ),
       },
@@ -280,87 +222,28 @@ export default function PurchaseOrdersPage() {
         key: 'order_date',
         label: 'Order Date',
         sortable: true,
+        render: (o) => (o.order_date ? new Date(o.order_date).toLocaleDateString() : '—'),
+      },
+      {
+        key: 'supplier_id',
+        label: 'Supplier',
+        render: (o) => suppliers.find((s) => s.id === o.supplier_id)?.name || `Supplier #${o.supplier_id}`,
+      },
+      {
+        key: 'items',
+        label: 'Received / Ordered',
         render: (o) => {
-          const dateStr = o.order_date
-            ? new Date(o.order_date).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-              })
-            : '—'
-          return (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--erp-text-muted)', fontSize: '0.8rem' }}>
-              <Clock size={13} color="var(--erp-text-subtle)" />
-              <span>{dateStr}</span>
-            </div>
-          )
+          const ord = (o.items || []).reduce((a, i) => a + i.ordered_quantity, 0)
+          const rec = (o.items || []).reduce((a, i) => a + i.received_quantity, 0)
+          return `${rec} / ${ord}`
         },
       },
       {
-        key: 'supplier',
-        label: 'Vendor / Supplier',
-        sortable: false,
-        render: (o) => {
-          const supp = suppliers.find((s) => s.id === o.supplier_id)
-          return (
-            <div>
-              <div style={{ fontWeight: 600, color: 'var(--erp-text-main)' }}>
-                {supp ? supp.name : `Supplier #${o.supplier_id}`}
-              </div>
-              {supp?.contact_person && (
-                <div style={{ fontSize: '0.725rem', color: 'var(--erp-text-muted)' }}>
-                  Attn: {supp.contact_person}
-                </div>
-              )}
-            </div>
-          )
-        },
-      },
-      {
-        key: 'items_summary',
-        label: 'Lines & Quantities',
-        sortable: false,
-        render: (o) => {
-          const totalUnits = (o.items || []).reduce((acc, i) => acc + (i.ordered_quantity || 0), 0)
-          const totalReceived = (o.items || []).reduce((acc, i) => acc + (i.received_quantity || 0), 0)
-          return (
-            <div style={{ fontSize: '0.825rem', color: 'var(--erp-text-main)' }}>
-              <strong>{o.items?.length || 0}</strong> line(s) &bull;{' '}
-              <span>
-                {totalReceived} / {totalUnits} received
-              </span>
-            </div>
-          )
-        },
-      },
-      {
-        key: 'total_value',
-        label: 'Total Value',
+        key: 'total_amount',
+        label: 'Total',
         numeric: true,
         sortable: true,
-        render: (o) => {
-          const totalVal = (o.items || []).reduce(
-            (acc, i) => acc + (i.ordered_quantity || 0) * (Number(i.unit_cost) || 0),
-            0
-          )
-          return <span style={{ fontWeight: 700, color: 'var(--erp-text-main)' }}>₹{totalVal.toFixed(2)}</span>
-        },
-      },
-      {
-        key: 'expected_delivery_date',
-        label: 'Expected Delivery',
-        sortable: true,
-        render: (o) => {
-          const dateStr = o.expected_delivery_date
-            ? new Date(o.expected_delivery_date).toLocaleDateString()
-            : 'Not specified'
-          return (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', color: 'var(--erp-text-muted)' }}>
-              <Calendar size={13} color="var(--erp-text-subtle)" />
-              <span>{dateStr}</span>
-            </div>
-          )
-        },
+        render: (o) => <strong>₹{Number(o.total_amount || 0).toFixed(2)}</strong>,
       },
       {
         key: 'status',
@@ -376,455 +259,282 @@ export default function PurchaseOrdersPage() {
         sortable: false,
         render: (o) => (
           <div className="actions-group">
-            {['DRAFT', 'SENT', 'PARTIALLY_RECEIVED'].includes(o.status) && (
+            {o.status === 'DRAFT' && (
               <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => dispatch(sendPurchaseOrder(o.id))}
+                title="Send PO to Supplier"
+              >
+                <Send size={12} />
+                <span>Send</span>
+              </button>
+            )}
+            {['SENT', 'PARTIALLY_RECEIVED'].includes(o.status) && !o.shared_with_supplier && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                title="Explicitly share PO with linked supplier workspace"
+                onClick={async () => {
+                  try {
+                    await api.sharePurchaseOrder(o.id)
+                    dispatch(addToast({ type: 'success', message: `${o.order_number || 'PO'} shared with supplier portal.` }))
+                    dispatch(fetchPurchaseOrders())
+                  } catch (err) {
+                    dispatch(addToast({ type: 'error', message: err.message || 'Could not share PO.' }))
+                  }
+                }}
+              >
+                <Share2 size={12} />
+                <span>Share</span>
+              </button>
+            )}
+            {o.shared_with_supplier && (
+              <Badge status="ACTIVE" label={o.supplier_status || 'Shared'} />
+            )}
+            {['SENT', 'PARTIALLY_RECEIVED'].includes(o.status) && (
+              <button
+                type="button"
                 className="btn btn-primary btn-sm"
                 onClick={() => navigate(`/receive-order?order_id=${o.id}`)}
-                title="Enter received quantities"
               >
-                <Inbox size={13} />
+                <Inbox size={12} />
                 <span>Receive</span>
               </button>
             )}
-            <button
-              className="btn-action-icon primary"
-              onClick={() => openDetail(o)}
-              title="View PO Details"
-            >
-              <Eye size={13} />
+            <button type="button" className="btn-action-icon" title="Details" onClick={() => openDetailModal(o)}>
+              <Eye size={14} />
             </button>
             {['DRAFT', 'SENT'].includes(o.status) && (
               <button
+                type="button"
                 className="btn-action-icon danger"
-                onClick={() => handleCancel(o.id)}
                 title="Cancel PO"
+                onClick={() => setCancelTarget(o)}
               >
-                <XCircle size={13} />
+                <XCircle size={14} />
               </button>
             )}
           </div>
         ),
       },
     ],
-    [suppliers, navigate]
+    [suppliers, dispatch, navigate]
   )
 
   return (
-    <div className="purchase-orders-page">
-      {/* Action Control Panel */}
-      <ErpControlPanel
-        moduleName="Procurement"
-        activePage="Purchase Orders"
-        itemCount={filteredOrders.length}
-        primaryAction={{
-          label: 'New Purchase Order',
-          icon: Plus,
-          onClick: () => openCreateModal(),
-          id: 'btn-create-po',
-        }}
-        onRefresh={() => dispatch(fetchPurchaseOrders())}
-        loading={loading}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        searchPlaceholder="Search PO by ID, vendor name, or notes..."
-        exportData={filteredOrders}
-        exportFilename="purchase_orders"
-        filters={
-          <select
-            className="form-control"
-            style={{ width: '180px', padding: '0.45rem 0.65rem' }}
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="ALL">All Statuses</option>
-            <option value="DRAFT">DRAFT</option>
-            <option value="SENT">SENT</option>
-            <option value="PARTIALLY_RECEIVED">PARTIALLY_RECEIVED</option>
-            <option value="RECEIVED">RECEIVED (Completed)</option>
-            <option value="CANCELLED">CANCELLED</option>
-          </select>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <PageHeader
+        title="Purchase Orders"
+        subtitle="Manage procurement lifecycle: DRAFT -> SENT -> PARTIALLY_RECEIVED -> RECEIVED"
+        actions={
+          <>
+            <CsvExportButton data={filteredOrders} filename="purchase_orders" />
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => dispatch(fetchPurchaseOrders())} disabled={loading}>
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              <span>Refresh</span>
+            </button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => openCreateModal()}>
+              <Plus size={14} />
+              <span>New Purchase Order</span>
+            </button>
+          </>
         }
       />
 
-      {/* Table with Pagination & Sorting */}
+      {error && <ErrorState message={error} onRetry={() => dispatch(fetchPurchaseOrders())} />}
+
+      <div className="section-card" style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <input
+          type="text"
+          className="form-control"
+          style={{ flex: '1 1 240px', maxWidth: '340px' }}
+          placeholder="Search PO number, supplier, or notes..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+        <select className="form-control" style={{ width: '200px' }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="ALL">All Statuses</option>
+          <option value="DRAFT">DRAFT</option>
+          <option value="SENT">SENT</option>
+          <option value="PARTIALLY_RECEIVED">PARTIALLY_RECEIVED</option>
+          <option value="RECEIVED">RECEIVED</option>
+          <option value="CANCELLED">CANCELLED</option>
+        </select>
+      </div>
+
       <DataTable
         columns={columns}
         data={filteredOrders}
         keyField="id"
         defaultPageSize={10}
         loading={loading}
-        emptyTitle="No purchase orders found"
-        emptyMessage="Create a new purchase order to request shipments from suppliers."
-        emptyIcon={ClipboardList}
+        emptyTitle="No purchase orders"
+        emptyMessage="Create a purchase order to replenish stock from a supplier."
       />
 
-      {/* Modal: Create Purchase Order (Document Sheet View) */}
-      <Modal
-        isOpen={isCreateOpen}
-        onClose={() => setIsCreateOpen(false)}
-        title="Create Purchase Order"
-        subtitle="Specify vendor, delivery schedule, and line items."
-        size="lg"
-      >
+      <Modal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} title="Create Purchase Order" size="lg">
         <form onSubmit={handleCreateSubmit}>
-          <div className="modal-body">
+          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {formError && (
               <div className="form-error-banner">
-                <AlertTriangle size={18} style={{ flexShrink: 0 }} />
-                <div>
-                  <strong>Backend Validation Rule:</strong> {formError}
-                </div>
+                <AlertTriangle size={18} />
+                <div>{formError}</div>
               </div>
             )}
-
             <div className="form-grid">
               <div className="form-group">
-                <label className="form-label">
-                  Vendor / Supplier <span className="required">*</span>
-                </label>
+                <label className="form-label">Supplier <span className="required">*</span></label>
                 <SearchableSelect
                   options={supplierOptions}
                   value={poForm.supplier_id}
-                  placeholder="-- Search & Choose Vendor --"
-                  searchPlaceholder="Type vendor name, email, or ID..."
-                  required
-                  id="select-po-supplier"
-                  onChange={(sid) => {
-                    const supp = suppliers.find((s) => s.id === parseInt(sid, 10))
-                    let expStr = poForm.expected_delivery_date
-                    if (supp?.lead_time_days) {
-                      const d = new Date()
-                      d.setDate(d.getDate() + supp.lead_time_days)
-                      expStr = d.toISOString().split('T')[0]
-                    }
-                    setPoForm({
-                      ...poForm,
-                      supplier_id: sid,
-                      expected_delivery_date: expStr,
-                    })
-                  }}
+                  onChange={(val) => setPoForm({ ...poForm, supplier_id: val })}
+                  placeholder="Select supplier..."
                 />
               </div>
-
               <div className="form-group">
-                <label className="form-label">Expected Delivery Date</label>
+                <label className="form-label">Expected Delivery</label>
                 <input
                   type="date"
                   className="form-control"
                   value={poForm.expected_delivery_date}
-                  onChange={(e) =>
-                    setPoForm({ ...poForm, expected_delivery_date: e.target.value })
-                  }
+                  onChange={(e) => setPoForm({ ...poForm, expected_delivery_date: e.target.value })}
                 />
               </div>
-
               <div className="form-group col-span-2">
-                <label className="form-label">Purchase Order Notes / Instructions</label>
+                <label className="form-label">Notes</label>
                 <input
                   type="text"
                   className="form-control"
-                  placeholder="e.g. Expedited freight, invoice payment net-30, dock delivery"
                   value={poForm.notes}
                   onChange={(e) => setPoForm({ ...poForm, notes: e.target.value })}
                 />
               </div>
             </div>
 
-            {/* Line Items Builder */}
-            <div style={{ marginTop: '0.5rem' }}>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: '0.5rem',
-                }}
-              >
-                <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--erp-text-main)' }}>
-                  Order Products & Quantities <span className="required">*</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <strong>Order Items</strong>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={addLineItem}>
+                <Plus size={13} /> Add Line
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {poForm.items.map((item, idx) => (
+                <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '0.5rem', alignItems: 'center' }}>
+                  <SearchableSelect
+                    options={productOptions}
+                    value={item.product_id}
+                    onChange={(val) => updateLineItem(idx, 'product_id', val)}
+                  />
+                  <input
+                    type="number"
+                    min="1"
+                    className="form-control"
+                    value={item.ordered_quantity}
+                    onChange={(e) => updateLineItem(idx, 'ordered_quantity', e.target.value)}
+                    aria-label="Ordered quantity"
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="form-control"
+                    value={item.unit_cost}
+                    onChange={(e) => updateLineItem(idx, 'unit_cost', e.target.value)}
+                    aria-label="Unit cost"
+                  />
+                  <button
+                    type="button"
+                    className="btn-action-icon danger"
+                    onClick={() =>
+                      setPoForm((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) }))
+                    }
+                    title="Remove line"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={addLineItem}
-                >
-                  <Plus size={13} />
-                  <span>Add Line Item</span>
-                </button>
-              </div>
+              ))}
+            </div>
 
-              <div
-                style={{
-                  border: '1px solid var(--erp-border)',
-                  borderRadius: '6px',
-                  overflow: 'visible',
-                  background: 'var(--erp-surface-subtle)',
-                }}
-              >
-                <table className="erp-table" style={{ margin: 0, overflow: 'visible' }}>
-                  <thead>
-                    <tr>
-                      <th style={{ width: '45%' }}>Product</th>
-                      <th style={{ width: '22%' }} className="numeric">Ordered Qty</th>
-                      <th style={{ width: '22%' }} className="numeric">Unit Cost (₹)</th>
-                      <th style={{ width: '11%' }} className="center"></th>
-                    </tr>
-                  </thead>
-                  <tbody style={{ overflow: 'visible' }}>
-                    {poForm.items.map((item, idx) => (
-                      <tr key={idx} style={{ background: 'var(--erp-surface)', overflow: 'visible' }}>
-                        <td style={{ overflow: 'visible' }}>
-                          <SearchableSelect
-                            options={productOptions}
-                            value={item.product_id}
-                            placeholder="Search & choose product..."
-                            searchPlaceholder="Type name, SKU, or category..."
-                            required
-                            onChange={(val) => {
-                              updateLineItem(idx, 'product_id', val)
-                            }}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="number"
-                            min="1"
-                            required
-                            className="form-control numeric"
-                            value={item.ordered_quantity}
-                            onChange={(e) => updateLineItem(idx, 'ordered_quantity', e.target.value)}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            required
-                            className="form-control numeric"
-                            value={item.unit_cost}
-                            onChange={(e) => updateLineItem(idx, 'unit_cost', e.target.value)}
-                          />
-                        </td>
-                        <td className="center">
-                          <button
-                            type="button"
-                            className="btn btn-subtle btn-sm"
-                            onClick={() => removeLineItem(idx)}
-                            disabled={poForm.items.length <= 1}
-                            style={{ color: '#dc2626' }}
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Grand Total */}
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'flex-end',
-                  alignItems: 'center',
-                  gap: '1rem',
-                  marginTop: '0.75rem',
-                  padding: '0.5rem 0.75rem',
-                  backgroundColor: 'var(--erp-brand-subtle)',
-                  borderRadius: '6px',
-                  border: '1px solid var(--erp-border)',
-                }}
-              >
-                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--erp-brand)' }}>
-                  Total Order Value:
-                </span>
-                <span style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--erp-brand)' }}>
-                  ₹{orderTotal.toFixed(2)}
-                </span>
-              </div>
+            <div style={{ textAlign: 'right', fontWeight: 700 }}>
+              Estimated Order Total: ₹{previewTotal.toFixed(2)}
             </div>
           </div>
-
           <div className="modal-footer">
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => setIsCreateOpen(false)}
-            >
-              Discard
+            <button type="button" className="btn btn-secondary" onClick={() => setIsCreateOpen(false)}>
+              Cancel
             </button>
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={submitting}
-              id="btn-confirm-save-po"
-            >
-              {submitting ? 'Creating Order...' : 'Create Purchase Order (DRAFT)'}
+            <button type="submit" className="btn btn-primary" disabled={submitting}>
+              {submitting ? 'Creating...' : 'Create Draft PO'}
             </button>
           </div>
         </form>
       </Modal>
 
-      {/* PO Details Drawer / Modal */}
-      {selectedOrder && (
-        <Modal
-          isOpen={isDetailOpen}
-          onClose={() => setIsDetailOpen(false)}
-          title={`Purchase Order: PO-${String(selectedOrder.id).padStart(4, '0')}`}
-          subtitle={`Created on ${new Date(selectedOrder.order_date).toLocaleDateString()}`}
-          size="lg"
-        >
-          <div className="modal-body">
-            {/* Workflow Status Ribbon */}
-            <div className="pipeline-statusbar">
-              <div className={`pipeline-stage ${selectedOrder.status === 'DRAFT' ? 'active' : 'passed'}`}>
-                1. Draft Order
-              </div>
-              <div className={`pipeline-stage ${selectedOrder.status === 'SENT' ? 'active' : ['PARTIALLY_RECEIVED', 'RECEIVED'].includes(selectedOrder.status) ? 'passed' : ''}`}>
-                2. Sent to Vendor
-              </div>
-              <div className={`pipeline-stage ${selectedOrder.status === 'PARTIALLY_RECEIVED' ? 'active' : selectedOrder.status === 'RECEIVED' ? 'passed' : ''}`}>
-                3. Partially Received
-              </div>
-              <div className={`pipeline-stage ${selectedOrder.status === 'RECEIVED' ? 'active' : ''}`}>
-                4. Completed / Received
-              </div>
-            </div>
-
+      <Modal
+        isOpen={Boolean(detailOrder)}
+        onClose={() => setDetailOrder(null)}
+        title={detailOrder ? `${detailOrder.order_number || `PO-${detailOrder.id}`} Details` : 'PO Details'}
+        size="lg"
+      >
+        {detailOrder && (
+          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div className="form-grid">
-              <div>
-                <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Supplier Name</div>
-                <div style={{ fontWeight: 700, fontSize: '1rem' }}>
-                  {suppliers.find((s) => s.id === selectedOrder.supplier_id)?.name || `Supplier #${selectedOrder.supplier_id}`}
-                </div>
-              </div>
-
-              <div>
-                <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Current Status</div>
-                <Badge status={selectedOrder.status} />
-              </div>
-
-              <div>
-                <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Expected Delivery Date</div>
-                <div style={{ fontWeight: 600 }}>
-                  {selectedOrder.expected_delivery_date
-                    ? new Date(selectedOrder.expected_delivery_date).toLocaleDateString()
-                    : 'Not specified'}
-                </div>
-              </div>
-
-              <div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--erp-text-muted)' }}>Order Notes</div>
-                <div style={{ fontStyle: 'italic', color: 'var(--erp-text-main)' }}>
-                  {selectedOrder.notes || 'None provided'}
-                </div>
-              </div>
+              <div><strong>Status:</strong> <Badge status={detailOrder.status} /></div>
+              <div><strong>Total Amount:</strong> ₹{Number(detailOrder.total_amount || 0).toFixed(2)}</div>
+              <div><strong>Order Date:</strong> {new Date(detailOrder.order_date).toLocaleString()}</div>
+              <div><strong>Notes:</strong> {detailOrder.notes || '—'}</div>
             </div>
-
-            {/* Items Breakdown Table */}
-            <div style={{ marginTop: '1rem' }}>
-              <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: '0.5rem', color: 'var(--erp-text-main)' }}>
-                Order Line Items
-              </div>
-              <div className="table-responsive" style={{ border: '1px solid var(--erp-border)', borderRadius: '6px' }}>
-                <table className="erp-table">
-                  <thead>
-                    <tr>
-                      <th>Product</th>
-                      <th className="numeric">Ordered</th>
-                      <th className="numeric">Received</th>
-                      <th className="numeric">Remaining</th>
-                      <th className="numeric">Unit Cost</th>
-                      <th className="numeric">Line Total</th>
+            <div className="table-responsive">
+              <table className="erp-table">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th className="numeric">Ordered</th>
+                    <th className="numeric">Received</th>
+                    <th className="numeric">Unit Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(detailOrder.items || []).map((itm) => (
+                    <tr key={itm.id}>
+                      <td>{products.find((p) => p.id === itm.product_id)?.name || `Product #${itm.product_id}`}</td>
+                      <td className="numeric">{itm.ordered_quantity}</td>
+                      <td className="numeric">{itm.received_quantity}</td>
+                      <td className="numeric">₹{Number(itm.unit_cost).toFixed(2)}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {selectedOrder.items?.map((item) => {
-                      const prod = products.find((p) => p.id === item.product_id)
-                      const remaining = item.ordered_quantity - item.received_quantity
-                      const lineTotal = item.ordered_quantity * Number(item.unit_cost)
-
-                      return (
-                        <tr key={item.id}>
-                          <td>
-                            <div style={{ fontWeight: 600 }}>
-                              {prod ? prod.name : `Product #${item.product_id}`}
-                            </div>
-                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                              {prod ? prod.sku : ''}
-                            </div>
-                          </td>
-                          <td className="numeric" style={{ fontWeight: 600 }}>
-                            {item.ordered_quantity} {prod?.unit || ''}
-                          </td>
-                          <td className="numeric" style={{ color: '#059669', fontWeight: 700 }}>
-                            {item.received_quantity} {prod?.unit || ''}
-                          </td>
-                          <td className="numeric" style={{ color: remaining > 0 ? '#d97706' : '#10b981', fontWeight: 700 }}>
-                            {remaining} {prod?.unit || ''}
-                          </td>
-                          <td className="numeric">₹{Number(item.unit_cost).toFixed(2)}</td>
-                          <td className="numeric" style={{ fontWeight: 700 }}>
-                            ₹{lineTotal.toFixed(2)}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {detailReceipts.length > 0 && (
+              <div>
+                <strong style={{ fontSize: '0.85rem' }}>Goods Receipts ({detailReceipts.length})</strong>
+                <ul style={{ marginTop: '0.4rem', paddingLeft: '1.25rem', fontSize: '0.82rem' }}>
+                  {detailReceipts.map((gr) => (
+                    <li key={gr.id}>
+                      <strong>{gr.receipt_number}</strong> — {new Date(gr.received_at).toLocaleString()} ({gr.items.length} line(s))
+                    </li>
+                  ))}
+                </ul>
               </div>
-            </div>
+            )}
           </div>
+        )}
+      </Modal>
 
-          <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
-            <div>
-              {['DRAFT', 'SENT'].includes(selectedOrder.status) && (
-                <button
-                  type="button"
-                  className="btn btn-subtle btn-sm"
-                  onClick={() => handleCancel(selectedOrder.id)}
-                  style={{ color: '#dc2626' }}
-                >
-                  <XCircle size={15} /> Cancel Order
-                </button>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setIsDetailOpen(false)}
-              >
-                Close
-              </button>
-              {['DRAFT', 'SENT', 'PARTIALLY_RECEIVED'].includes(selectedOrder.status) && (
-                <>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => {
-                      setIsDetailOpen(false)
-                      navigate(`/receive-order?order_id=${selectedOrder.id}`)
-                    }}
-                  >
-                    <Inbox size={15} /> Receive Line by Line
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-accent"
-                    onClick={() => handleReceiveFull(selectedOrder.id)}
-                  >
-                    <CheckCircle size={15} /> Receive All at Once
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </Modal>
-      )}
+      <ConfirmDialog
+        isOpen={Boolean(cancelTarget)}
+        onClose={() => setCancelTarget(null)}
+        onConfirm={handleConfirmCancel}
+        title="Cancel Purchase Order"
+        message={`Cancel ${cancelTarget?.order_number || `PO #${cancelTarget?.id}`}?`}
+        confirmLabel="Cancel PO"
+        danger
+        loading={submitting}
+      />
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Maximize2 } from 'lucide-react'
 import FullScreenChartModal from './FullScreenChartModal'
 
@@ -68,15 +68,15 @@ export default function ChartCard({
             )}
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <h3 style={{ fontSize: '0.975rem', color: 'var(--erp-text-main)', margin: 0 }}>
+                <h3 style={{ fontSize: 'var(--text-md)', fontWeight: 'var(--font-weight-semibold)', color: 'var(--erp-text-main)', margin: 0, lineHeight: 'var(--leading-snug)' }}>
                   {title}
                 </h3>
                 {badge && (
                   <span
                     style={{
-                      fontSize: '0.675rem',
-                      fontWeight: 700,
-                      padding: '2px 6px',
+                      fontSize: 'var(--text-xs)',
+                      fontWeight: 'var(--font-weight-medium)',
+                      padding: '2px 7px',
                       borderRadius: '4px',
                       backgroundColor:
                         badgeType === 'success'

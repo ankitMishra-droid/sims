@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { Search, ChevronDown, X, Check } from 'lucide-react'
 
 /**
@@ -45,39 +45,35 @@ export default function SearchableSelect({
     })
   }, [options, searchQuery])
 
-  // Reset highlight when filter changes
-  useEffect(() => {
-    setHighlightedIndex(0)
-  }, [filteredOptions])
-
   const [openUpwards, setOpenUpwards] = useState(false)
+  const safeHighlightedIndex = Math.min(highlightedIndex, Math.max(0, filteredOptions.length - 1))
 
   // Focus search input and detect dropup vs dropdown
   useEffect(() => {
     if (isOpen) {
-      setSearchQuery('')
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect()
-        const spaceBelow = window.innerHeight - rect.bottom
-        const scrollParent = containerRef.current.closest('.modal-body')
+      const timer = setTimeout(() => {
+        setSearchQuery('')
+        if (containerRef.current) {
+          const rect = containerRef.current.getBoundingClientRect()
+          const spaceBelow = window.innerHeight - rect.bottom
+          const scrollParent = containerRef.current.closest('.modal-body')
 
-        let shouldOpenUp = false
-        if (scrollParent) {
-          const parentRect = scrollParent.getBoundingClientRect()
-          const spaceInParentBelow = parentRect.bottom - rect.bottom
-          if (spaceInParentBelow < 240 && (rect.top - parentRect.top) > 180) {
+          let shouldOpenUp = false
+          if (scrollParent) {
+            const parentRect = scrollParent.getBoundingClientRect()
+            const spaceInParentBelow = parentRect.bottom - rect.bottom
+            if (spaceInParentBelow < 240 && (rect.top - parentRect.top) > 180) {
+              shouldOpenUp = true
+            }
+          } else if (spaceBelow < 240 && rect.top > 240) {
             shouldOpenUp = true
           }
-        } else if (spaceBelow < 240 && rect.top > 240) {
-          shouldOpenUp = true
+
+          setOpenUpwards(shouldOpenUp)
         }
-
-        setOpenUpwards(shouldOpenUp)
-      }
-
-      setTimeout(() => {
         searchInputRef.current?.focus()
-      }, 50)
+      }, 0)
+      return () => clearTimeout(timer)
     }
   }, [isOpen])
 
@@ -123,8 +119,8 @@ export default function SearchableSelect({
       )
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      if (filteredOptions[highlightedIndex]) {
-        handleSelect(filteredOptions[highlightedIndex])
+      if (filteredOptions[safeHighlightedIndex]) {
+        handleSelect(filteredOptions[safeHighlightedIndex])
       }
     }
   }
@@ -340,7 +336,7 @@ export default function SearchableSelect({
             ) : (
               filteredOptions.map((opt, idx) => {
                 const isSelected = String(opt.value) === String(value)
-                const isHighlighted = idx === highlightedIndex
+                const isHighlighted = idx === safeHighlightedIndex
 
                 return (
                   <div

@@ -1,575 +1,376 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useSelector, useDispatch } from 'react-redux'
+import { useSelector } from 'react-redux'
 import {
   Package,
   IndianRupee,
-  TrendingUp,
-  AlertTriangle,
-  ClipboardList,
-  Boxes,
-  RefreshCw,
-  Plus,
-  ArrowRight,
-  ArrowUpRight,
-  ArrowDownRight,
   ShoppingCart,
-  Clock,
+  AlertTriangle,
+  Plus,
+  ClipboardList,
+  Inbox,
+  ArrowRight,
+  RefreshCw,
 } from 'lucide-react'
-import {
-  fetchDashboardMetrics,
-  selectDashboardMetrics,
-  selectDashboardLoading,
-} from '../store/dashboardSlice'
-import { selectAllProducts, selectLowStockProducts, fetchProducts } from '../store/productsSlice'
-import { selectAllSales, fetchSales } from '../store/salesSlice'
-import { selectAllPurchaseOrders, fetchPurchaseOrders } from '../store/purchaseOrdersSlice'
-import { selectAllSuppliers, fetchSuppliers } from '../store/suppliersSlice'
-import ErpControlPanel from '../components/common/ErpControlPanel'
-import DataTable from '../components/common/DataTable'
+import { api } from '../api'
+import { useTranslation } from '../hooks/useTranslation'
+import PageHeader from '../components/common/PageHeader'
 import KpiCard from '../components/common/KpiCard'
 import Badge from '../components/Badge'
-import {
-  RevenueTrendChart,
-  StockMovementChart,
-  CategoryValuationChart,
-  TopProductsChart,
-  OperationsRadarChart,
-} from '../components/charts'
+import { LoadingState, ErrorState, EmptyState } from '../components/common/StateBlocks'
 
 export default function DashboardPage() {
   const navigate = useNavigate()
-  const dispatch = useDispatch()
+  const { t } = useTranslation()
+  const user = useSelector((state) => state.auth.user)
 
-  const metrics = useSelector(selectDashboardMetrics)
-  const loading = useSelector(selectDashboardLoading)
-  const products = useSelector(selectAllProducts)
-  const lowStockList = useSelector(selectLowStockProducts)
-  const sales = useSelector(selectAllSales)
-  const orders = useSelector(selectAllPurchaseOrders)
-  const suppliers = useSelector(selectAllSuppliers)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [summary, setSummary] = useState(null)
+  const [salesMetrics, setSalesMetrics] = useState(null)
+  const [poMetrics, setPoMetrics] = useState(null)
+  const [movementMetrics, setMovementMetrics] = useState(null)
+  const [lowStock, setLowStock] = useState([])
+  const [pendingPOs, setPendingPOs] = useState([])
+  const [recentSales, setRecentSales] = useState([])
+  const [productsMap, setProductsMap] = useState({})
 
-  const [period, setPeriod] = useState('month') // 'today' | 'week' | 'month'
+  const loadDashboard = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const [sum, sMetrics, pMetrics, mMetrics, lowList, pos, salesPage, prods] = await Promise.all([
+        api.getDashboardSummary(),
+        api.getSalesMetrics(),
+        api.getPurchaseOrderMetrics(),
+        api.getInventoryMovementMetrics(),
+        api.getLowStockProducts(),
+        api.getPurchaseOrders(),
+        api.getSalesPage({ limit: 5, skip: 0 }),
+        api.getProducts(),
+      ])
+
+      setSummary(sum)
+      setSalesMetrics(sMetrics)
+      setPoMetrics(pMetrics)
+      setMovementMetrics(mMetrics)
+      setLowStock(Array.isArray(lowList) ? lowList.slice(0, 6) : [])
+      setPendingPOs(
+        (Array.isArray(pos) ? pos : [])
+          .filter((po) => ['DRAFT', 'SENT', 'PARTIALLY_RECEIVED'].includes(po.status))
+          .slice(0, 6)
+      )
+      setRecentSales(salesPage?.data || [])
+
+      const pMap = {}
+      ;(Array.isArray(prods) ? prods : []).forEach((p) => {
+        pMap[p.id] = p
+      })
+      setProductsMap(pMap)
+    } catch (err) {
+      setError(err.message || 'Failed to load dashboard data.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
-    dispatch(fetchDashboardMetrics())
-    dispatch(fetchProducts())
-    dispatch(fetchSales())
-    dispatch(fetchPurchaseOrders())
-    dispatch(fetchSuppliers())
-  }, [dispatch])
+    const id = setTimeout(() => {
+      loadDashboard()
+    }, 0)
+    return () => clearTimeout(id)
+  }, [loadDashboard])
 
-  const summary = metrics?.summary
-  const poMetrics = metrics?.poMetrics
-  const movementMetrics = metrics?.movementMetrics
-  const salesMetrics = metrics?.salesMetrics
-
-  // Calculated metrics from active Redux collections for instant reactivity
-  const calculatedTotalStock = useMemo(() => {
-    return products.reduce((acc, p) => acc + (Number(p.current_stock) || 0), 0)
-  }, [products])
-
-  const calculatedValuation = useMemo(() => {
-    return products.reduce(
-      (acc, p) => acc + (Number(p.current_stock) || 0) * (Number(p.cost_price) || 0),
-      0
-    )
-  }, [products])
-
-  const calculatedSalesForPeriod = useMemo(() => {
-    const now = new Date()
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-    const weekAgo = new Date(now)
-    weekAgo.setDate(weekAgo.getDate() - 7)
-    const monthAgo = new Date(now)
-    monthAgo.setDate(monthAgo.getDate() - 30)
-
-    let rev = 0
-    let count = 0
-
-    ;(sales || []).forEach((s) => {
-      const rawDate = s.sales_date || s.sale_date || s.created_at
-      if (!rawDate) return
-      const d = new Date(rawDate)
-      if (isNaN(d.getTime())) return
-
-      const r = Number(s.revenue) || (Number(s.selling_price || 0) * Number(s.quantity_sold || 0)) || 0
-
-      if (period === 'today') {
-        const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-        if (dStr === todayStr) {
-          rev += r
-          count += 1
-        }
-      } else if (period === 'week') {
-        if (d >= weekAgo) {
-          rev += r
-          count += 1
-        }
-      } else {
-        if (d >= monthAgo) {
-          rev += r
-          count += 1
-        }
-      }
-    })
-
-    return { rev, count }
-  }, [sales, period])
-
-  const netProfitData = useMemo(() => {
-    let totalRevenue = 0
-    let totalCOGS = 0
-    ;(sales || []).forEach((s) => {
-      const p = (products || []).find((prod) => prod.id === s.product_id)
-      const rev = Number(s.revenue) || (Number(s.selling_price || 0) * Number(s.quantity_sold || 0)) || 0
-      const cost = p ? (Number(p.cost_price || 0) * Number(s.quantity_sold || 0)) : 0
-      totalRevenue += rev
-      totalCOGS += cost
-    })
-    const netProfit = totalRevenue - totalCOGS
-    const margin = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(1) : '0.0'
-    return {
-      totalRevenue,
-      totalCOGS,
-      netProfit,
-      margin,
-    }
-  }, [sales, products])
-
-  // Dynamic period metrics with live Redux fallback
-  const revenueForPeriod =
-    calculatedSalesForPeriod.rev > 0
-      ? calculatedSalesForPeriod.rev
-      : period === 'today'
-      ? salesMetrics?.todays_revenue
-      : period === 'week'
-      ? salesMetrics?.this_weeks_revenue
-      : salesMetrics?.this_months_revenue
-
-  const salesCountForPeriod =
-    calculatedSalesForPeriod.count > 0
-      ? calculatedSalesForPeriod.count
-      : period === 'today'
-      ? salesMetrics?.sales_count_today
-      : period === 'week'
-      ? salesMetrics?.sales_count_this_week
-      : salesMetrics?.sales_count_this_month
-
-  // Low Stock Table Columns
-  const lowStockColumns = useMemo(
-    () => [
-      {
-        key: 'sku',
-        label: 'SKU',
-        sortable: true,
-        render: (p) => (
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', fontWeight: 700, color: '#dc2626' }}>
-            {p.sku}
-          </span>
-        ),
-      },
-      {
-        key: 'name',
-        label: 'Product',
-        sortable: true,
-        render: (p) => (
-          <div>
-            <div style={{ fontWeight: 600 }}>{p.name}</div>
-            <div style={{ fontSize: '0.725rem', color: '#64748b' }}>Unit: {p.unit}</div>
-          </div>
-        ),
-      },
-      {
-        key: 'current_stock',
-        label: 'In Stock',
-        numeric: true,
-        sortable: true,
-        render: (p) => (
-          <span style={{ fontWeight: 800, color: p.current_stock === 0 ? '#dc2626' : '#d97706' }}>
-            {p.current_stock} {p.unit}
-          </span>
-        ),
-      },
-      {
-        key: 'reorder_level',
-        label: 'Reorder Point',
-        numeric: true,
-        sortable: true,
-        render: (p) => `${p.reorder_level} ${p.unit}`,
-      },
-      {
-        key: 'action',
-        label: 'Action',
-        center: true,
-        sortable: false,
-        render: (p) => (
-          <button
-            className="btn btn-primary btn-sm"
-            onClick={() => navigate(`/purchase-orders?supplier_id=${p.supplier_id || ''}`)}
-          >
-            <Plus size={12} />
-            <span>Reorder</span>
-          </button>
-        ),
-      },
-    ],
-    [navigate]
-  )
-
-  // Recent Sales Columns
-  const recentSalesColumns = useMemo(
-    () => [
-      {
-        key: 'id',
-        label: 'Sale ID',
-        sortable: true,
-        render: (s) => (
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', fontWeight: 600 }}>
-            #SO-{String(s.id).padStart(4, '0')}
-          </span>
-        ),
-      },
-      {
-        key: 'product',
-        label: 'Product',
-        sortable: false,
-        render: (s) => {
-          const prod = products.find((p) => p.id === s.product_id)
-          return (
-            <div>
-              <div style={{ fontWeight: 600 }}>{prod ? prod.name : `Product #${s.product_id}`}</div>
-              <div style={{ fontSize: '0.725rem', color: '#64748b' }}>{prod?.sku}</div>
-            </div>
-          )
-        },
-      },
-      {
-        key: 'quantity_sold',
-        label: 'Quantity',
-        numeric: true,
-        sortable: true,
-        render: (s) => {
-          const prod = products.find((p) => p.id === s.product_id)
-          return `${s.quantity_sold} ${prod?.unit || ''}`
-        },
-      },
-      {
-        key: 'revenue',
-        label: 'Revenue',
-        numeric: true,
-        sortable: true,
-        render: (s) => (
-          <span style={{ fontWeight: 700, color: '#059669' }}>
-            ₹{Number(s.revenue).toFixed(2)}
-          </span>
-        ),
-      },
-      {
-        key: 'status',
-        label: 'Status',
-        center: true,
-        sortable: false,
-        render: () => <Badge status="RECEIVED" label="Completed" />,
-      },
-    ],
-    [products]
-  )
+  const todayDisplay = new Date().toLocaleDateString(undefined, {
+    weekday: 'short',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
 
   return (
-    <div className="dashboard-page">
-      {/* Action Control Panel */}
-      <ErpControlPanel
-        moduleName="Executive Control"
-        activePage="Operations Dashboard"
-        onRefresh={() => {
-          dispatch(fetchDashboardMetrics())
-          dispatch(fetchProducts())
-          dispatch(fetchSales())
-          dispatch(fetchPurchaseOrders())
-        }}
-        loading={loading}
-        filters={
-          <div
-            style={{
-              display: 'flex',
-              background: 'var(--erp-surface-subtle)',
-              borderRadius: '6px',
-              padding: '2px',
-              border: '1px solid var(--erp-border)',
-            }}
-          >
-            <button
-              className={`btn btn-sm ${period === 'today' ? 'btn-primary' : 'btn-subtle'}`}
-              style={{ padding: '0.25rem 0.65rem', fontSize: '0.75rem' }}
-              onClick={() => setPeriod('today')}
-            >
-              Today
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      <PageHeader
+        title={`${t('dashboard.welcome')}, ${user?.name || 'Operator'}`}
+        subtitle={`${t('common.workspace')} #${user?.active_business_id || 1} • ${todayDisplay} — ${t('dashboard.subtitle')}`}
+        actions={
+          <>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={loadDashboard} disabled={loading}>
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              <span>{t('common.refresh')}</span>
             </button>
-            <button
-              className={`btn btn-sm ${period === 'week' ? 'btn-primary' : 'btn-subtle'}`}
-              style={{ padding: '0.25rem 0.65rem', fontSize: '0.75rem' }}
-              onClick={() => setPeriod('week')}
-            >
-              Past 7 Days
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/products')}>
+              <Plus size={14} />
+              <span>{t('dashboard.addProduct')}</span>
             </button>
-            <button
-              className={`btn btn-sm ${period === 'month' ? 'btn-primary' : 'btn-subtle'}`}
-              style={{ padding: '0.25rem 0.65rem', fontSize: '0.75rem' }}
-              onClick={() => setPeriod('month')}
-            >
-              Past 30 Days
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => navigate('/sales/new')}>
+              <ShoppingCart size={14} />
+              <span>{t('dashboard.recordSale')}</span>
             </button>
-          </div>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/purchase-orders')}>
+              <ClipboardList size={14} />
+              <span>{t('dashboard.createPo')}</span>
+            </button>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/receive-order')}>
+              <Inbox size={14} />
+              <span>{t('dashboard.receiveGoods')}</span>
+            </button>
+          </>
         }
       />
 
-      {/* Main KPI Cards Grid */}
-      <div className="kpi-grid">
-        <KpiCard
-          label="Product Catalog"
-          value={products.length > 0 ? products.length : (summary?.total_products || 0)}
-          subtitle={`${(products.length > 0 ? calculatedTotalStock : (summary?.total_stock_units || 0)).toLocaleString()} units in warehouse`}
-          icon={Package}
-          onClick={() => navigate('/products')}
-        />
-        <KpiCard
-          label="Total Stock Valuation"
-          value={`₹${Number(products.length > 0 ? calculatedValuation : (summary?.total_inventory_value || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-          subtitle="Inventory cost value on hand"
-          icon={IndianRupee}
-          variant="emerald"
-          onClick={() => navigate('/inventory')}
-        />
-        <KpiCard
-          label={`Sales Revenue (${period === 'today' ? 'Today' : period === 'week' ? 'Past 7 Days' : 'Past 30 Days'})`}
-          value={`₹${Number(revenueForPeriod || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-          subtitle={`${salesCountForPeriod || 0} orders executed`}
-          icon={TrendingUp}
-          variant="blue"
-          onClick={() => navigate('/sales')}
-        />
-        <KpiCard
-          label="Total Net Profit"
-          value={`₹${netProfitData.netProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-          subtitle={`${netProfitData.margin}% profit margin so far`}
-          icon={TrendingUp}
-          variant="purple"
-          onClick={() => navigate('/sales')}
-        />
-        <KpiCard
-          label="Low Stock Alerts"
-          value={summary?.low_stock_products || lowStockList.length}
-          subtitle={
-            (summary?.low_stock_products || lowStockList.length) > 0
-              ? 'Replenish required'
-              : 'All stocks healthy'
-          }
-          icon={AlertTriangle}
-          variant={(summary?.low_stock_products || lowStockList.length) > 0 ? 'rose' : 'emerald'}
-          onClick={() => navigate('/inventory')}
-        />
-      </div>
+      {error && <ErrorState message={error} onRetry={loadDashboard} />}
 
-      {/* Visual Analytics & Improvement Charts Suite */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', marginBottom: '1.5rem' }}>
-        {/* Row 1: Line Chart (Revenue Trend) & Grouped Bar Chart (Stock Movements) */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(460px, 1fr))',
-            gap: '1.25rem',
-          }}
-        >
-          <RevenueTrendChart sales={sales} />
-          <StockMovementChart sales={sales} purchaseOrders={orders} products={products} />
-        </div>
-
-        {/* Row 2: Doughnut/Pie Chart (Categories), Horizontal Bar (Top Products), and Radar Chart (Operations Health) */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-            gap: '1.25rem',
-          }}
-        >
-          <CategoryValuationChart products={products} />
-          <TopProductsChart sales={sales} products={products} />
-          <OperationsRadarChart
-            products={products}
-            sales={sales}
-            purchaseOrders={orders}
-            suppliers={suppliers}
-          />
-        </div>
-      </div>
-
-      {/* Procurement & Today's Movement Blocks */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-          gap: '1.25rem',
-          marginBottom: '1.5rem',
-        }}
-      >
-        {/* Purchase Order Pipeline */}
-        <div
-          style={{
-            background: 'var(--erp-surface)',
-            border: '1px solid var(--erp-border)',
-            borderRadius: '8px',
-            padding: '1.25rem',
-            boxShadow: 'var(--shadow-xs)',
-            transition: 'background-color 0.25s ease, border-color 0.25s ease',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <div style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'var(--erp-brand-subtle)', color: 'var(--erp-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <ClipboardList size={18} />
-              </div>
-              <h3 style={{ fontSize: '1rem', color: 'var(--erp-text-main)' }}>Purchase Order Pipeline</h3>
-            </div>
-            <button className="btn btn-subtle btn-sm" onClick={() => navigate('/purchase-orders')}>
-              <span>View All</span>
-              <ArrowRight size={13} />
-            </button>
+      {loading && !summary ? (
+        <LoadingState message={t('common.loading')} />
+      ) : (
+        <>
+          {/* Core Operational KPIs */}
+          <div className="kpi-grid">
+            <KpiCard
+              label={t('dashboard.totalProducts')}
+              value={summary?.total_products ?? 0}
+              subtitle={`${(summary?.total_stock_units ?? 0).toLocaleString()} units on hand`}
+              icon={Package}
+              variant="blue"
+              onClick={() => navigate('/products')}
+            />
+            <KpiCard
+              label={t('dashboard.stockValue')}
+              value={`₹${Number(summary?.total_inventory_value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
+              subtitle="Cost valuation across active catalog"
+              icon={IndianRupee}
+              variant="emerald"
+              onClick={() => navigate('/inventory')}
+            />
+            <KpiCard
+              label={t('dashboard.todaysSales')}
+              value={`₹${Number(salesMetrics?.todays_revenue || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
+              subtitle={`${salesMetrics?.sales_count_today ?? 0} order(s) today`}
+              icon={ShoppingCart}
+              variant="purple"
+              onClick={() => navigate('/sales')}
+            />
+            <KpiCard
+              label={t('dashboard.lowStock')}
+              value={summary?.low_stock_products ?? 0}
+              subtitle="At or below reorder level"
+              icon={AlertTriangle}
+              variant={(summary?.low_stock_products || 0) > 0 ? 'amber' : 'emerald'}
+              onClick={() => navigate('/stock-alerts')}
+            />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }}>
-            <div style={{ backgroundColor: 'var(--erp-surface-subtle)', padding: '0.75rem', borderRadius: '6px' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--erp-text-muted)' }}>Total POs</div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 800 }}>{poMetrics?.total_purchase_orders || orders.length}</div>
-            </div>
-            <div style={{ backgroundColor: 'var(--erp-surface-subtle)', padding: '0.75rem', borderRadius: '6px' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--erp-text-muted)' }}>Pending Orders</div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#d97706' }}>
-                {poMetrics?.pending_purchase_orders || 0}
+          {/* Operational Tables */}
+          <div className="dashboard-grid-2">
+            {/* Critical Low Stock */}
+            <section className="section-card">
+              <div className="section-card-header">
+                <h2 className="section-card-title">{t('dashboard.criticalLowStock')}</h2>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => navigate('/reorder-planner')}
+                >
+                  <span>Reorder Plan</span>
+                  <ArrowRight size={13} />
+                </button>
               </div>
-            </div>
-            <div style={{ backgroundColor: 'var(--erp-surface-subtle)', padding: '0.75rem', borderRadius: '6px' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--erp-text-muted)' }}>Incomplete Deliveries</div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#2563eb' }}>
-                {poMetrics?.incomplete_deliveries || 0}
+              {lowStock.length === 0 ? (
+                <EmptyState
+                  title="All stock levels healthy"
+                  description="No active products are at or below their reorder threshold."
+                />
+              ) : (
+                <div className="table-responsive">
+                  <table className="erp-table">
+                    <thead>
+                      <tr>
+                        <th>SKU</th>
+                        <th>Product</th>
+                        <th className="numeric">On Hand</th>
+                        <th className="numeric">Reorder At</th>
+                        <th className="center">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lowStock.map((p) => (
+                        <tr key={p.id}>
+                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.775rem' }}>{p.sku}</td>
+                          <td style={{ fontWeight: 600 }}>{p.name}</td>
+                          <td className="numeric" style={{ color: p.current_stock === 0 ? '#dc2626' : '#d97706', fontWeight: 700 }}>
+                            {p.current_stock}
+                          </td>
+                          <td className="numeric">{p.reorder_level}</td>
+                          <td className="center">
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => navigate(`/purchase-orders?supplier_id=${p.supplier_id || ''}`)}
+                            >
+                              Order
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+
+            {/* Pending Purchase Orders */}
+            <section className="section-card">
+              <div className="section-card-header">
+                <h2 className="section-card-title">{t('dashboard.pendingOrders')}</h2>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => navigate('/purchase-orders')}
+                >
+                  <span>All POs</span>
+                  <ArrowRight size={13} />
+                </button>
               </div>
-            </div>
-            <div style={{ backgroundColor: 'var(--erp-surface-subtle)', padding: '0.75rem', borderRadius: '6px' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--erp-text-muted)' }}>Expected Stock</div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#059669' }}>
-                +{poMetrics?.expected_stock || 0} units
+              {pendingPOs.length === 0 ? (
+                <EmptyState
+                  title="No pending purchase orders"
+                  description="Create a purchase order to replenish stock from a supplier."
+                />
+              ) : (
+                <div className="table-responsive">
+                  <table className="erp-table">
+                    <thead>
+                      <tr>
+                        <th>PO #</th>
+                        <th>Status</th>
+                        <th className="numeric">Total</th>
+                        <th className="center">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pendingPOs.map((po) => (
+                        <tr key={po.id}>
+                          <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                            {po.order_number || `PO-${String(po.id).padStart(4, '0')}`}
+                          </td>
+                          <td>
+                            <Badge status={po.status} />
+                          </td>
+                          <td className="numeric">₹{Number(po.total_amount || 0).toFixed(2)}</td>
+                          <td className="center">
+                            {po.status === 'DRAFT' ? (
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => navigate('/purchase-orders')}
+                              >
+                                Review
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                onClick={() => navigate(`/receive-order?order_id=${po.id}`)}
+                              >
+                                Receive
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+
+            {/* Recent Sales */}
+            <section className="section-card">
+              <div className="section-card-header">
+                <h2 className="section-card-title">{t('dashboard.recentSales')}</h2>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => navigate('/sales')}
+                >
+                  <span>History</span>
+                  <ArrowRight size={13} />
+                </button>
               </div>
-            </div>
+              {recentSales.length === 0 ? (
+                <EmptyState title="No sales recorded" description="Record a sale to track revenue and stock deductions." />
+              ) : (
+                <div className="table-responsive">
+                  <table className="erp-table">
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Product</th>
+                        <th className="numeric">Qty</th>
+                        <th className="numeric">Revenue</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentSales.map((s) => (
+                        <tr key={s.id}>
+                          <td style={{ fontFamily: 'var(--font-mono)' }}>#SO-{String(s.id).padStart(4, '0')}</td>
+                          <td style={{ fontWeight: 500 }}>{productsMap[s.product_id]?.name || `Product #${s.product_id}`}</td>
+                          <td className="numeric">{s.quantity_sold}</td>
+                          <td className="numeric" style={{ fontWeight: 700, color: '#059669' }}>
+                            ₹{Number(s.revenue || 0).toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+
+            {/* Today's Movement & Procurement Summary */}
+            <section className="section-card">
+              <div className="section-card-header">
+                <h2 className="section-card-title">{t('dashboard.recentMovements')}</h2>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => navigate('/inventory/history')}
+                >
+                  <span>Ledger</span>
+                  <ArrowRight size={13} />
+                </button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.75rem' }}>
+                <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'var(--erp-surface-subtle)' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--erp-text-muted)' }}>Stock In Today</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#059669' }}>
+                    +{movementMetrics?.stock_in_today ?? 0}
+                  </div>
+                </div>
+                <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'var(--erp-surface-subtle)' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--erp-text-muted)' }}>Stock Out Today</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#dc2626' }}>
+                    -{movementMetrics?.stock_out_today ?? 0}
+                  </div>
+                </div>
+                <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'var(--erp-surface-subtle)' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--erp-text-muted)' }}>Expected Incoming Units</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--erp-brand)' }}>
+                    {poMetrics?.expected_stock ?? 0}
+                  </div>
+                </div>
+                <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'var(--erp-surface-subtle)' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--erp-text-muted)' }}>30-Day Sales Revenue</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>
+                    ₹{Number(salesMetrics?.this_months_revenue || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </div>
+                </div>
+              </div>
+            </section>
           </div>
-        </div>
-
-        {/* Daily Inventory Movement */}
-        <div
-          style={{
-            background: 'var(--erp-surface)',
-            border: '1px solid var(--erp-border)',
-            borderRadius: '8px',
-            padding: '1.25rem',
-            boxShadow: 'var(--shadow-xs)',
-            transition: 'background-color 0.25s ease, border-color 0.25s ease',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <div style={{ width: '32px', height: '32px', borderRadius: '6px', background: 'var(--status-success-bg)', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Boxes size={18} />
-              </div>
-              <h3 style={{ fontSize: '1rem', color: 'var(--erp-text-main)' }}>Today's Movement</h3>
-            </div>
-            <button className="btn btn-subtle btn-sm" onClick={() => navigate('/inventory')}>
-              <span>Audit Trail</span>
-              <ArrowRight size={13} />
-            </button>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }}>
-            <div style={{ backgroundColor: 'var(--status-success-bg)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--status-success-border)' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--status-success-text)', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                <ArrowUpRight size={13} /> Inbound Today
-              </div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--status-success-text)' }}>
-                +{movementMetrics?.stock_in_today || 0} units
-              </div>
-            </div>
-
-            <div style={{ backgroundColor: 'var(--status-danger-bg)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--status-danger-border)' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--status-danger-text)', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                <ArrowDownRight size={13} /> Dispatched Today
-              </div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--status-danger-text)' }}>
-                -{movementMetrics?.stock_out_today || 0} units
-              </div>
-            </div>
-
-            <div style={{ backgroundColor: 'var(--erp-surface-subtle)', padding: '0.75rem', borderRadius: '6px' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--erp-text-muted)' }}>Net Stock Delta</div>
-              <div
-                style={{
-                  fontSize: '1.25rem',
-                  fontWeight: 800,
-                  color: (movementMetrics?.net_stock_movement_today || 0) >= 0 ? '#059669' : '#dc2626',
-                }}
-              >
-                {(movementMetrics?.net_stock_movement_today || 0) >= 0 ? '+' : ''}
-                {movementMetrics?.net_stock_movement_today || 0} units
-              </div>
-            </div>
-
-            <div style={{ backgroundColor: 'var(--erp-surface-subtle)', padding: '0.75rem', borderRadius: '6px' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--erp-text-muted)' }}>Transactions Logged</div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 800 }}>
-                {movementMetrics?.inventory_transaction_count_today || 0}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Two-Column Feeds with Reusable DataTable & Pagination */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))',
-          gap: '1.5rem',
-        }}
-      >
-        <div>
-          <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <AlertTriangle size={18} color="#d97706" />
-            <span>Critical Stock Replenishment Alerts ({lowStockList.length})</span>
-          </div>
-          <DataTable
-            columns={lowStockColumns}
-            data={lowStockList}
-            keyField="id"
-            defaultPageSize={5}
-            emptyTitle="All inventory levels healthy"
-            emptyMessage="No products are at or below reorder threshold."
-            emptyIcon={Package}
-          />
-        </div>
-
-        <div>
-          <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--erp-text-main)' }}>
-            <ShoppingCart size={18} color="var(--erp-brand)" />
-            <span>Recent Sales Transactions</span>
-          </div>
-          <DataTable
-            columns={recentSalesColumns}
-            data={sales}
-            keyField="id"
-            defaultPageSize={5}
-            emptyTitle="No sales recorded"
-            emptyMessage="Record customer sales to see transactions here."
-            emptyIcon={ShoppingCart}
-          />
-        </div>
-      </div>
+        </>
+      )}
     </div>
   )
 }

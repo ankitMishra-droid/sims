@@ -11,7 +11,8 @@ backend_dir = Path(__file__).resolve().parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
-from app.database import SessionLocal, engine, base
+from app.database import SessionLocal, engine
+from app.db_migrate import ensure_schema_and_backfill
 from app import models
 
 # List of realistic suppliers
@@ -327,20 +328,48 @@ def seed_database():
             pass
 
     print("[INFO] Initializing database tables...")
-    base.metadata.create_all(bind=engine)
+    ensure_schema_and_backfill(engine)
 
     db = SessionLocal()
     try:
+        default_biz = db.query(models.Business).order_by(models.Business.id.asc()).first()
+        if not default_biz:
+            admin = db.query(models.User).order_by(models.User.id.asc()).first()
+            if not admin:
+                from app.core.security import hash_password
+                admin = models.User(
+                    name="System Admin",
+                    email="admin@stocksangati.com",
+                    password_hash=hash_password("SecretPassword123!"),
+                    role="admin",
+                    is_active=True,
+                )
+                db.add(admin)
+                db.flush()
+            default_biz = models.Business(
+                name="StockSangati Primary Workspace",
+                business_type="retailer",
+                owner_user_id=admin.id,
+                is_active=True,
+            )
+            db.add(default_biz)
+            db.flush()
+            db.add(models.BusinessMember(business_id=default_biz.id, user_id=admin.id, role="admin", is_active=True))
+            admin.active_business_id = default_biz.id
+            db.commit()
+        biz_id = default_biz.id
+
         # 1. Seed or retrieve Suppliers
         print("\n[SUPPLIERS] Seeding Suppliers...")
         supplier_map = {}
         for s_data in SUPPLIERS_DATA:
             supplier = db.query(models.Supplier).filter(
+                models.Supplier.business_id == biz_id,
                 (models.Supplier.name == s_data["name"]) | (models.Supplier.email == s_data["email"])
             ).first()
 
             if not supplier:
-                supplier = models.Supplier(**s_data)
+                supplier = models.Supplier(business_id=biz_id, **s_data)
                 db.add(supplier)
                 db.commit()
                 db.refresh(supplier)
@@ -360,10 +389,14 @@ def seed_database():
             s_name = p_copy.pop("supplier_name", None)
             supplier_id = supplier_map.get(s_name)
 
-            product = db.query(models.Product).filter(models.Product.sku == p_copy["sku"]).first()
+            product = db.query(models.Product).filter(
+                models.Product.business_id == biz_id,
+                models.Product.sku == p_copy["sku"],
+            ).first()
 
             if not product:
                 product = models.Product(
+                    business_id=biz_id,
                     **p_copy,
                     supplier_id=supplier_id,
                     is_active=True
@@ -377,10 +410,15 @@ def seed_database():
                 # Create initial inventory log
                 if product.current_stock > 0:
                     log = models.InventoryLog(
+                        business_id=biz_id,
                         product_id=product.id,
+                        movement_type="OPENING_STOCK",
                         stock_in=product.current_stock,
                         stock_out=0,
+                        previous_stock=0,
                         closing_stock=product.current_stock,
+                        reference_type="product",
+                        reference_id=product.id,
                         reason="initial_stock"
                     )
                     db.add(log)
