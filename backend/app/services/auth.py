@@ -60,6 +60,8 @@ class AuthService:
         role = (user_in.role or "owner").strip().lower()
         if role not in allowed_roles:
             role = "staff"
+        if not user_in.create_workspace and role in {"owner", "admin"}:
+            role = "staff"
 
         allowed_types = {"retailer", "wholesaler", "supplier"}
         biz_type = (user_in.business_type or "").strip().lower()
@@ -94,7 +96,7 @@ class AuthService:
             db.add(business)
             db.flush()
 
-            member_role = "supplier" if role == "supplier" else role
+            member_role = "supplier" if (biz_type == "supplier" or role == "supplier") else role
             membership = BusinessMember(
                 business_id=business.id,
                 user_id=new_user.id,
@@ -135,7 +137,7 @@ class AuthService:
             "role": user.role,
             "name": user.name,
             "business_id": user.active_business_id,
-            "token_version": int(user.token_version or 1),
+            "token_version": user.token_version or 1,
         }
         return create_access_token(data=token_payload)
 
@@ -147,7 +149,7 @@ class AuthService:
             "role": user.role,
             "name": user.name,
             "business_id": user.active_business_id,
-            "token_version": int(user.token_version or 1),
+            "token_version": user.token_version or 1,
         }
         return {
             "access_token": create_access_token(data=payload),
@@ -202,7 +204,7 @@ class AuthService:
                 pass
 
         if revoke_all:
-            user.token_version = int(user.token_version or 1) + 1
+            user.token_version = (user.token_version or 1) + 1
 
         db.commit()
 
@@ -256,7 +258,7 @@ class AuthService:
                 detail="New password must be different from your current password.",
             )
         user.password_hash = hash_password(new_password)
-        user.token_version = int(user.token_version or 1) + 1
+        user.token_version = (user.token_version or 1) + 1
         db.commit()
         db.refresh(user)
         return cls.create_token_pair_for_user(user)
@@ -289,6 +291,14 @@ class AuthService:
         return raw_token
 
     @staticmethod
+    def _mask_email(email: str) -> str:
+        if "@" not in email:
+            return "***"
+        local, domain = email.split("@", 1)
+        prefix = local[:1] if local else ""
+        return f"{prefix}***@{domain}"
+
+    @staticmethod
     def _dispatch_password_reset_notification(email: str, raw_token: str) -> None:
         smtp_host = os.getenv("SMTP_HOST")
         app_env = os.getenv("APP_ENV", "development").lower()
@@ -296,7 +306,7 @@ class AuthService:
             outbox_path = Path(__file__).resolve().parent.parent.parent / "dev_mail_outbox.log"
             with outbox_path.open("a", encoding="utf-8") as fh:
                 fh.write(f"[{_utcnow().isoformat()}] TO={email} RESET_TOKEN={raw_token}\n")
-        logger.info("Password reset token generated for account %s", email)
+        logger.info("Password reset token generated for account %s", AuthService._mask_email(email))
 
     @classmethod
     def confirm_password_reset(cls, db: Session, raw_token: str, new_password: str) -> None:
@@ -320,6 +330,6 @@ class AuthService:
             )
 
         user.password_hash = hash_password(new_password)
-        user.token_version = int(user.token_version or 1) + 1
+        user.token_version = (user.token_version or 1) + 1
         reset_row.used_at = _utcnow()
         db.commit()

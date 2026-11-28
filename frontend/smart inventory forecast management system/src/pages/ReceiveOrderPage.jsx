@@ -13,6 +13,8 @@ import { selectAllProducts, fetchProducts } from '../store/productsSlice'
 import { selectAllSuppliers, fetchSuppliers } from '../store/suppliersSlice'
 import { showToast } from '../store/uiSlice'
 import { api } from '../api'
+import { useTranslation } from '../hooks/useTranslation'
+import { parseStrictNonNegativeInt } from '../utils/formHelpers'
 import PageHeader from '../components/common/PageHeader'
 import SearchableSelect from '../components/common/SearchableSelect'
 import Badge from '../components/Badge'
@@ -26,6 +28,7 @@ function newReceiptKey() {
 export default function ReceiveOrderPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const dispatch = useDispatch()
+  const { t } = useTranslation()
   const orders = useSelector(selectAllPurchaseOrders)
   const loading = useSelector(selectPurchaseOrdersLoading)
   const products = useSelector(selectAllProducts)
@@ -101,13 +104,12 @@ export default function ReceiveOrderPage() {
   }
 
   const handleQtyChange = (itemId, val) => {
-    const parsed = val === '' ? '' : parseInt(val, 10)
-    setReceiveQuantities((prev) => ({ ...prev, [itemId]: isNaN(parsed) ? '' : parsed }))
+    setReceiveQuantities((prev) => ({ ...prev, [itemId]: val }))
   }
 
   const handleSubmitReceipt = async (e) => {
     e.preventDefault()
-    if (!selectedOrder) return
+    if (!selectedOrder || submitting) return
     setFormError('')
 
     const itemsPayload = []
@@ -115,7 +117,13 @@ export default function ReceiveOrderPage() {
       const remaining = Math.max(0, item.ordered_quantity - item.received_quantity)
       if (remaining === 0) continue
       const raw = receiveQuantities[item.id] !== undefined ? receiveQuantities[item.id] : remaining
-      const qty = parseInt(raw, 10) || 0
+      const rawStr = String(raw).trim()
+      if (rawStr === '') continue
+      const qty = parseStrictNonNegativeInt(rawStr)
+      if (qty === null) {
+        setFormError(`Quantity for line #${item.id} must be a whole number of 0 or more.`)
+        return
+      }
       if (qty > remaining) {
         setFormError(`Quantity for line #${item.id} (${qty}) exceeds remaining due (${remaining}).`)
         return
@@ -276,6 +284,8 @@ export default function ReceiveOrderPage() {
                               min="0"
                               max={remaining}
                               disabled={!canReceive}
+                              placeholder={`e.g. ${remaining}`}
+                              aria-label={`Receive quantity for ${prod?.name || `Product #${item.product_id}`}`}
                               className="form-control numeric"
                               style={{ width: '96px', marginLeft: 'auto' }}
                               value={val}
@@ -296,7 +306,8 @@ export default function ReceiveOrderPage() {
                   type="text"
                   className="form-control"
                   style={{ flex: '1 1 260px' }}
-                  placeholder="Delivery note / challan number (optional)..."
+                  placeholder={t('placeholders.receiptNotes', 'e.g. Challan #DC-8841 verified at dock')}
+                  aria-label="Receipt notes or challan number"
                   value={receiptNotes}
                   onChange={(e) => setReceiptNotes(e.target.value)}
                 />

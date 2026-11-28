@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useSelector, useDispatch } from 'react-redux'
 import { Plus, Trash2, Eye, Send, XCircle, Inbox, RefreshCw, AlertTriangle, Share2 } from 'lucide-react'
@@ -18,14 +18,18 @@ import { api } from '../api'
 import PageHeader from '../components/common/PageHeader'
 import DataTable from '../components/common/DataTable'
 import SearchableSelect from '../components/common/SearchableSelect'
+import FormField from '../components/common/FormField'
 import CsvExportButton from '../components/common/CsvExportButton'
 import Modal from '../components/Modal'
 import Badge from '../components/Badge'
 import { ErrorState, ConfirmDialog } from '../components/common/StateBlocks'
+import { useTranslation } from '../hooks/useTranslation'
+import { createStableRowKey, validateAndBuildPurchaseOrderPayload } from '../utils/formHelpers'
 
 export default function PurchaseOrdersPage() {
   const navigate = useNavigate()
   const dispatch = useDispatch()
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
 
   const orders = useSelector(selectAllPurchaseOrders)
@@ -67,7 +71,14 @@ export default function PurchaseOrdersPage() {
         expected_delivery_date: d.toISOString().split('T')[0],
         notes: '',
         items: defaultProd
-          ? [{ product_id: defaultProd.id, ordered_quantity: 25, unit_cost: defaultProd.cost_price || 0 }]
+          ? [
+              {
+                _key: createStableRowKey('po-item'),
+                product_id: defaultProd.id,
+                ordered_quantity: '25',
+                unit_cost: String(defaultProd.cost_price ?? 0),
+              },
+            ]
           : [],
       })
       setFormError('')
@@ -76,12 +87,20 @@ export default function PurchaseOrdersPage() {
     [suppliers, products]
   )
 
+  const handledQuerySupplierRef = useRef(null)
+
   useEffect(() => {
     const qSupp = searchParams.get('supplier_id')
-    if (qSupp && suppliers.length > 0) {
+    if (!qSupp) {
+      handledQuerySupplierRef.current = null
+      return undefined
+    }
+    if (suppliers.length > 0 && handledQuerySupplierRef.current !== qSupp) {
+      handledQuerySupplierRef.current = qSupp
       const timer = setTimeout(() => openCreateModal(qSupp), 0)
       return () => clearTimeout(timer)
     }
+    return undefined
   }, [searchParams, suppliers.length, openCreateModal])
 
   const openDetailModal = async (order) => {
@@ -138,58 +157,60 @@ export default function PurchaseOrdersPage() {
     if (!p) return
     setPoForm((prev) => ({
       ...prev,
-      items: [...prev.items, { product_id: p.id, ordered_quantity: 10, unit_cost: p.cost_price || 0 }],
+      items: [
+        ...prev.items,
+        {
+          _key: createStableRowKey('po-item'),
+          product_id: p.id,
+          ordered_quantity: '10',
+          unit_cost: String(p.cost_price ?? 0),
+        },
+      ],
     }))
   }
 
-  const updateLineItem = (idx, field, val) => {
-    setPoForm((prev) => {
-      const next = [...prev.items]
-      const row = { ...next[idx] }
-      if (field === 'product_id') {
-        const pid = parseInt(val, 10)
-        const prod = products.find((p) => p.id === pid)
-        row.product_id = pid
-        if (prod) row.unit_cost = prod.cost_price || 0
-      } else if (field === 'ordered_quantity') {
-        row.ordered_quantity = parseInt(val, 10) || 1
-      } else if (field === 'unit_cost') {
-        row.unit_cost = parseFloat(val) || 0
-      }
-      next[idx] = row
-      return { ...prev, items: next }
-    })
+  const updateLineItem = (rowKey, field, val) => {
+    setPoForm((prev) => ({
+      ...prev,
+      items: prev.items.map((item) => {
+        if (item._key !== rowKey) return item
+        const row = { ...item }
+        if (field === 'product_id') {
+          if (val === '' || val === null || val === undefined) {
+            row.product_id = ''
+          } else {
+            const pid = parseInt(val, 10)
+            row.product_id = Number.isNaN(pid) ? '' : pid
+            const prod = products.find((p) => p.id === pid)
+            if (prod) row.unit_cost = String(prod.cost_price ?? 0)
+          }
+        } else if (field === 'ordered_quantity') {
+          row.ordered_quantity = val
+        } else if (field === 'unit_cost') {
+          row.unit_cost = val
+        }
+        return row
+      }),
+    }))
   }
 
-  const previewTotal = poForm.items.reduce(
-    (sum, i) => sum + (Number(i.ordered_quantity) || 0) * (Number(i.unit_cost) || 0),
-    0
-  )
+  const previewTotal = poForm.items.reduce((sum, i) => {
+    const qty = Number(i.ordered_quantity)
+    const cost = Number(i.unit_cost)
+    return sum + (Number.isFinite(qty) && qty > 0 ? qty : 0) * (Number.isFinite(cost) && cost >= 0 ? cost : 0)
+  }, 0)
 
   const handleCreateSubmit = async (e) => {
     e.preventDefault()
+    if (submitting) return
     setFormError('')
-    if (!poForm.supplier_id) {
-      setFormError('Please select a supplier.')
-      return
-    }
-    if (!poForm.items.length) {
-      setFormError('Add at least one product line.')
+    const { error: validationError, payload } = validateAndBuildPurchaseOrderPayload(poForm)
+    if (validationError || !payload) {
+      setFormError(validationError || 'Please fix form validation errors.')
       return
     }
     setSubmitting(true)
-    const res = await dispatch(
-      createPurchaseOrder({
-        supplier_id: parseInt(poForm.supplier_id, 10),
-        expected_delivery_date: poForm.expected_delivery_date || null,
-        notes: poForm.notes.trim() || null,
-        items: poForm.items.map((i) => ({
-          product_id: parseInt(i.product_id, 10),
-          ordered_quantity: parseInt(i.ordered_quantity, 10),
-          unit_cost: parseFloat(i.unit_cost),
-        })),
-      })
-    )
+    const res = await dispatch(createPurchaseOrder(payload))
     if (createPurchaseOrder.rejected.match(res)) {
       setFormError(res.payload || 'Failed to create purchase order.')
     } else {
@@ -349,7 +370,8 @@ export default function PurchaseOrdersPage() {
           type="text"
           className="form-control"
           style={{ flex: '1 1 240px', maxWidth: '340px' }}
-          placeholder="Search PO number, supplier, or notes..."
+          placeholder={t('placeholders.searchOrders', 'Search by PO number, supplier name, or notes...')}
+          aria-label="Search purchase orders"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
@@ -383,33 +405,39 @@ export default function PurchaseOrdersPage() {
               </div>
             )}
             <div className="form-grid">
-              <div className="form-group">
-                <label className="form-label">Supplier <span className="required">*</span></label>
+              <FormField label="Supplier" htmlFor="po-supplier-select" required>
                 <SearchableSelect
+                  id="po-supplier-select"
                   options={supplierOptions}
                   value={poForm.supplier_id}
-                  onChange={(val) => setPoForm({ ...poForm, supplier_id: val })}
+                  onChange={(val) => setPoForm((prev) => ({ ...prev, supplier_id: val }))}
                   placeholder="Select supplier..."
                 />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Expected Delivery</label>
+              </FormField>
+              <FormField label="Expected Delivery" htmlFor="po-eta-date">
                 <input
+                  id="po-eta-date"
                   type="date"
                   className="form-control"
                   value={poForm.expected_delivery_date}
-                  onChange={(e) => setPoForm({ ...poForm, expected_delivery_date: e.target.value })}
+                  onChange={(e) => setPoForm((prev) => ({ ...prev, expected_delivery_date: e.target.value }))}
                 />
-              </div>
-              <div className="form-group col-span-2">
-                <label className="form-label">Notes</label>
+              </FormField>
+              <FormField
+                label="Purchase Order Notes & Reference"
+                htmlFor="po-notes-input"
+                className="col-span-2"
+                hint="Include internal PO reference or delivery instructions if needed."
+              >
                 <input
+                  id="po-notes-input"
                   type="text"
                   className="form-control"
+                  placeholder={t('placeholders.poNotes', 'e.g. PO-2026-001 urgent festive restock')}
                   value={poForm.notes}
-                  onChange={(e) => setPoForm({ ...poForm, notes: e.target.value })}
+                  onChange={(e) => setPoForm((prev) => ({ ...prev, notes: e.target.value }))}
                 />
-              </div>
+              </FormField>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -419,20 +447,23 @@ export default function PurchaseOrdersPage() {
               </button>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {poForm.items.map((item, idx) => (
-                <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '0.5rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+              {poForm.items.map((item) => (
+                <div key={item._key} className="po-line-grid">
                   <SearchableSelect
                     options={productOptions}
                     value={item.product_id}
-                    onChange={(val) => updateLineItem(idx, 'product_id', val)}
+                    placeholder="Select product..."
+                    onChange={(val) => updateLineItem(item._key, 'product_id', val)}
                   />
                   <input
                     type="number"
                     min="1"
+                    step="1"
                     className="form-control"
+                    placeholder={t('placeholders.poQuantity', 'e.g. 100')}
                     value={item.ordered_quantity}
-                    onChange={(e) => updateLineItem(idx, 'ordered_quantity', e.target.value)}
+                    onChange={(e) => updateLineItem(item._key, 'ordered_quantity', e.target.value)}
                     aria-label="Ordered quantity"
                   />
                   <input
@@ -440,15 +471,19 @@ export default function PurchaseOrdersPage() {
                     min="0"
                     step="0.01"
                     className="form-control"
+                    placeholder={t('placeholders.poUnitCost', 'e.g. 42.50')}
                     value={item.unit_cost}
-                    onChange={(e) => updateLineItem(idx, 'unit_cost', e.target.value)}
+                    onChange={(e) => updateLineItem(item._key, 'unit_cost', e.target.value)}
                     aria-label="Unit cost"
                   />
                   <button
                     type="button"
                     className="btn-action-icon danger"
                     onClick={() =>
-                      setPoForm((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) }))
+                      setPoForm((prev) => ({
+                        ...prev,
+                        items: prev.items.filter((row) => row._key !== item._key),
+                      }))
                     }
                     title="Remove line"
                   >

@@ -5,7 +5,7 @@ from urllib.parse import parse_qs, urlparse
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from sqlalchemy.pool import NullPool
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -22,6 +22,14 @@ def normalize_database_url(raw_url: str | None) -> str:
         url = url.replace("postgres://", "postgresql+psycopg2://", 1)
     elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
         url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+    elif url.startswith("sqlite:///./") or (
+        url.startswith("sqlite:///")
+        and url != "sqlite:///:memory:"
+        and not url.startswith("sqlite:////")
+        and ":" not in url[len("sqlite:///") : len("sqlite:///") + 3]
+    ):
+        rel = url[len("sqlite:///") :]
+        url = f"sqlite:///{(BASE_DIR / rel).resolve().as_posix()}"
     return url
 
 
@@ -90,7 +98,11 @@ def _set_sqlite_pragma(dbapi_connection, connection_record):
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-base = declarative_base()
+class Base(DeclarativeBase):
+    pass
+
+
+base = Base
 
 
 def get_db():

@@ -4,22 +4,24 @@ export default function CsvExportButton({ data = [], filename = 'export', column
   const handleExport = () => {
     if (!data.length) return
 
+    const escapeCell = (raw) => {
+      if (raw === null || raw === undefined) return '""'
+      let s = String(raw)
+      if (/^[=+\-@\t\r]/.test(s)) {
+        s = `'${s}`
+      }
+      return `"${s.replace(/"/g, '""')}"`
+    }
+
     // Headers
     const headers = columns.length
-      ? columns.map((c) => c.label || c.key)
-      : Object.keys(data[0])
+      ? columns.map((c) => escapeCell(c.label || c.key))
+      : Object.keys(data[0]).map((k) => escapeCell(k))
 
     const keys = columns.length ? columns.map((c) => c.key) : Object.keys(data[0])
 
     const rows = data.map((item) =>
-      keys
-        .map((k) => {
-          let val = item[k]
-          if (val === null || val === undefined) val = ''
-          val = String(val).replace(/"/g, '""')
-          return `"${val}"`
-        })
-        .join(',')
+      keys.map((k) => escapeCell(item[k])).join(',')
     )
 
     const csvContent = [headers.join(','), ...rows].join('\n')

@@ -17,6 +17,17 @@ from .purchase_order import (
     PurchaseOrderSupplierAction,
 )
 from .users import User, RevokedToken, PasswordResetToken
+from .alerts import StockAlertState
+from .intelligence import ProductForecast, ModelEvaluation, ModelTrainingRun, ReplenishmentRecommendation
+from .ai_rag import (
+    AIDocument,
+    AIDocumentChunk,
+    AIConversation,
+    AIMessage,
+    AIUsageLog,
+    AICreditAccount,
+    AICreditTransaction,
+)
 
 __all__ = [
     "Business",
@@ -36,4 +47,16 @@ __all__ = [
     "User",
     "RevokedToken",
     "PasswordResetToken",
+    "StockAlertState",
+    "ProductForecast",
+    "ModelEvaluation",
+    "ModelTrainingRun",
+    "ReplenishmentRecommendation",
+    "AIDocument",
+    "AIDocumentChunk",
+    "AIConversation",
+    "AIMessage",
+    "AIUsageLog",
+    "AICreditAccount",
+    "AICreditTransaction",
 ]

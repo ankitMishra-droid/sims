@@ -1,19 +1,23 @@
 from datetime import datetime
-from typing import List, Optional
+import logging
+from typing import Annotated, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from .. import schemas
 from ..database import get_db
-from ..dependencies.authorization import BusinessContext, require_business_roles
+from ..dependencies.authorization import BusinessContext, require_business_roles, require_business_types
 from ..ml.decision_service import InventoryDecisionService
 from ..models.products import Product
 from ..services.procurement_service import ProcurementService
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(
     prefix="/api/decision",
     tags=["Inventory Decision Engine"],
+    dependencies=[Depends(require_business_types(["retailer", "wholesaler"]))],
 )
 
 READ_ROLES = ["admin", "manager", "analyst", "staff"]
@@ -34,7 +38,7 @@ class ConvertToPORequest(BaseModel):
 
 @router.get("/recommendations")
 def get_all_reorder_recommendations(
-    service_level: float = Query(0.95, ge=0.80, le=0.999, description="Target service level probability"),
+    service_level: Annotated[float, Query(ge=0.80, le=0.999, description="Target service level probability")] = 0.95,
     db: Session = Depends(get_db),
     ctx: BusinessContext = Depends(require_business_roles(READ_ROLES)),
 ):
@@ -51,14 +55,18 @@ def get_all_reorder_recommendations(
             "total_count": len(recommendations),
             "data": recommendations,
         }
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Decision engine error: {str(e)}")
+    except Exception:
+        logger.exception("Decision engine error business_id=%s", ctx.business_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to compute reorder recommendations.",
+        )
 
 
 @router.get("/product/{product_id}")
 def get_single_product_decision(
     product_id: int,
-    service_level: float = Query(0.95, ge=0.80, le=0.999),
+    service_level: Annotated[float, Query(ge=0.80, le=0.999)] = 0.95,
     db: Session = Depends(get_db),
     ctx: BusinessContext = Depends(require_business_roles(READ_ROLES)),
 ):
@@ -76,12 +84,17 @@ def get_single_product_decision(
             db=db,
             product_id=product_id,
             service_level=service_level,
+            business_id=ctx.business_id,
         )
         return {"status": "success", "data": decision}
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Decision error: {str(e)}")
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product decision data not found.")
+    except Exception:
+        logger.exception("Decision analysis error business_id=%s product_id=%s", ctx.business_id, product_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to compute product decision analysis.",
+        )
 
 
 @router.post("/convert-to-po", status_code=status.HTTP_201_CREATED)
@@ -107,7 +120,7 @@ def convert_recommendation_to_purchase_order(
         .filter(Product.id.in_(product_ids), Product.business_id == ctx.business_id)
         .all()
     )
-    product_map = {p.id: p for p in products}
+    product_map: dict[int, Product] = {p.id: p for p in products}
 
     po_items = []
     for itm in req.items:

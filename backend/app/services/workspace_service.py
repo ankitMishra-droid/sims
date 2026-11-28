@@ -61,7 +61,7 @@ class WorkspaceService:
             business_type=btype,
             owner_user_id=user.id,
             default_language=lang,
-            contact_email=str(payload.contact_email) if payload.contact_email else None,
+            contact_email=payload.contact_email or None,
             contact_phone=payload.contact_phone.strip() if payload.contact_phone else None,
             address=payload.address.strip() if payload.address else None,
             gstin_or_tax_id=payload.gstin_or_tax_id.strip() if payload.gstin_or_tax_id else None,
@@ -149,6 +149,12 @@ class WorkspaceService:
             btype = str(updates["business_type"]).strip().lower()
             if btype not in VALID_BUSINESS_TYPES:
                 raise HTTPException(status_code=400, detail="Invalid business_type.")
+            current_btype = (business.business_type or "").strip().lower()
+            if btype != current_btype and ("supplier" in {btype, current_btype}):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot switch between buyer and supplier workspace types.",
+                )
             business.business_type = btype
         if "default_language" in updates and updates["default_language"] is not None:
             business.default_language = normalize_language_code(updates["default_language"])
@@ -186,7 +192,7 @@ class WorkspaceService:
                 "user_name": u.name,
                 "user_email": u.email,
                 "role": m.role,
-                "is_active": bool(m.is_active),
+                "is_active": m.is_active,
                 "created_at": m.created_at,
             }
             for m, u in rows
@@ -394,7 +400,7 @@ class WorkspaceService:
             "user_name": user.name if user else "",
             "user_email": user.email if user else "",
             "role": member.role,
-            "is_active": bool(member.is_active),
+            "is_active": member.is_active,
             "created_at": member.created_at,
         }
 

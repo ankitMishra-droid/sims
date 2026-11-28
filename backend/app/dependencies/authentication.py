@@ -47,7 +47,7 @@ def validate_jwt_user(token: str, expected_type: str, db: Session) -> tuple[User
         raise _unauthorized("User associated with token no longer exists.")
 
     token_version = payload.get("token_version")
-    if token_version is not None and int(token_version) != int(user.token_version or 1):
+    if token_version is not None and int(token_version) != (user.token_version or 1):
         raise _unauthorized("Session expired due to security update. Please log in again.")
 
     return user, payload

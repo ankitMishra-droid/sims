@@ -21,20 +21,27 @@ import { selectAllPurchaseOrders } from '../../store/purchaseOrdersSlice'
 import { setCommandPaletteOpen } from '../../store/uiSlice'
 
 const NAVIGATION_ITEMS = [
-  { type: 'Page', title: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-  { type: 'Page', title: 'Products', path: '/products', icon: Package },
-  { type: 'Page', title: 'Stock Management', path: '/inventory', icon: Boxes },
-  { type: 'Page', title: 'Stock History', path: '/inventory/history', icon: Boxes },
-  { type: 'Page', title: 'Stock Adjustments', path: '/inventory/adjustments', icon: Sliders },
-  { type: 'Page', title: 'Record Sale', path: '/sales/new', icon: ShoppingCart },
-  { type: 'Page', title: 'Sales History', path: '/sales', icon: ShoppingCart },
-  { type: 'Page', title: 'Suppliers', path: '/suppliers', icon: Truck },
-  { type: 'Page', title: 'Purchase Orders', path: '/purchase-orders', icon: ClipboardList },
-  { type: 'Page', title: 'Receive Orders', path: '/receive-order', icon: Inbox },
-  { type: 'Page', title: 'Reorder Suggestions', path: '/reorder-planner', icon: CheckCircle2 },
-  { type: 'Page', title: 'Demand Forecasts', path: '/forecasting', icon: BrainCircuit },
-  { type: 'Page', title: 'What-If Simulator', path: '/simulator', icon: Sliders },
-  { type: 'Page', title: 'Stock Alerts', path: '/stock-alerts', icon: BrainCircuit },
+  { type: 'Page', title: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, businessTypes: ['retailer', 'wholesaler'] },
+  { type: 'Page', title: 'Supplier Portal', path: '/supplier-portal', icon: ClipboardList, businessTypes: ['supplier'] },
+  { type: 'Page', title: 'Products', path: '/products', icon: Package, businessTypes: ['retailer', 'wholesaler'] },
+  { type: 'Page', title: 'Stock Management', path: '/inventory', icon: Boxes, businessTypes: ['retailer', 'wholesaler'] },
+  { type: 'Page', title: 'Stock History', path: '/inventory/history', icon: Boxes, businessTypes: ['retailer', 'wholesaler'] },
+  { type: 'Page', title: 'Stock Adjustments', path: '/inventory/adjustments', icon: Sliders, businessTypes: ['retailer', 'wholesaler'] },
+  { type: 'Page', title: 'Record Sale', path: '/sales/new', icon: ShoppingCart, businessTypes: ['retailer', 'wholesaler'] },
+  { type: 'Page', title: 'Sales History', path: '/sales', icon: ShoppingCart, businessTypes: ['retailer', 'wholesaler'] },
+  { type: 'Page', title: 'Suppliers', path: '/suppliers', icon: Truck, businessTypes: ['retailer', 'wholesaler'] },
+  { type: 'Page', title: 'Purchase Orders', path: '/purchase-orders', icon: ClipboardList, businessTypes: ['retailer', 'wholesaler'] },
+  { type: 'Page', title: 'Receive Orders', path: '/receive-order', icon: Inbox, businessTypes: ['retailer', 'wholesaler'] },
+  { type: 'Page', title: 'Intelligence Overview', path: '/intelligence', icon: BrainCircuit, businessTypes: ['retailer', 'wholesaler'] },
+  { type: 'Page', title: 'Reorder Suggestions', path: '/reorder-planner', icon: CheckCircle2, businessTypes: ['retailer', 'wholesaler'] },
+  { type: 'Page', title: 'Demand Forecasts', path: '/forecasting', icon: BrainCircuit, businessTypes: ['retailer', 'wholesaler'] },
+  { type: 'Page', title: 'What-If Simulator', path: '/simulator', icon: Sliders, businessTypes: ['retailer', 'wholesaler'] },
+  { type: 'Page', title: 'Stock Alerts', path: '/stock-alerts', icon: BrainCircuit, businessTypes: ['retailer', 'wholesaler'] },
+  { type: 'Page', title: 'AI Knowledge Base', path: '/ai-knowledge', icon: BrainCircuit },
+  { type: 'Page', title: 'AI Usage & Credits', path: '/ai-usage', icon: BrainCircuit },
+  { type: 'Page', title: 'Inventory Reports', path: '/reports/inventory', icon: LayoutDashboard, businessTypes: ['retailer', 'wholesaler'] },
+  { type: 'Page', title: 'Sales Reports', path: '/reports/sales', icon: LayoutDashboard, businessTypes: ['retailer', 'wholesaler'] },
+  { type: 'Page', title: 'Procurement Reports', path: '/reports/procurement', icon: LayoutDashboard, businessTypes: ['retailer', 'wholesaler'] },
   { type: 'Page', title: 'Workspaces', path: '/workspaces', icon: LayoutDashboard },
   { type: 'Page', title: 'Setup Wizard', path: '/onboarding', icon: CheckCircle2 },
   { type: 'Page', title: 'Business Settings', path: '/settings/business', icon: Sliders },
@@ -47,6 +54,8 @@ export default function CommandPalette() {
   const navigate = useNavigate()
   const dispatch = useDispatch()
   const isOpen = useSelector((state) => state.ui.commandPaletteOpen)
+  const currentWorkspace = useSelector((state) => state.auth.currentWorkspace)
+  const activeBusinessType = String(currentWorkspace?.business?.business_type || 'retailer').toLowerCase()
 
   const products = useSelector(selectAllProducts)
   const suppliers = useSelector(selectAllSuppliers)
@@ -84,19 +93,26 @@ export default function CommandPalette() {
 
   // Filtered search results
   const results = useMemo(() => {
+    const allowedPages = NAVIGATION_ITEMS.filter(
+      (n) => !n.businessTypes || n.businessTypes.includes(activeBusinessType)
+    )
     const q = query.toLowerCase().trim()
     if (!q) {
-      return NAVIGATION_ITEMS.map((n) => ({ ...n, subtitle: 'Go to module' }))
+      return allowedPages.map((n) => ({ ...n, subtitle: 'Go to module' }))
     }
 
     const items = []
 
     // Match pages
-    NAVIGATION_ITEMS.forEach((n) => {
+    allowedPages.forEach((n) => {
       if (n.title.toLowerCase().includes(q)) {
         items.push({ ...n, subtitle: 'Go to module' })
       }
     })
+
+    if (activeBusinessType === 'supplier') {
+      return items.slice(0, 10)
+    }
 
     // Match products
     products.forEach((p) => {
@@ -138,7 +154,7 @@ export default function CommandPalette() {
         items.push({
           type: 'Purchase Order',
           title: `PO-${String(o.id).padStart(4, '0')}`,
-          subtitle: `Status: ${o.status} &bull; ${o.items?.length || 0} line(s)`,
+          subtitle: `Status: ${o.status} • ${o.items?.length || 0} line(s)`,
           path: `/receive-order?order_id=${o.id}`,
           icon: ClipboardList,
         })
@@ -146,7 +162,7 @@ export default function CommandPalette() {
     })
 
     return items.slice(0, 10)
-  }, [query, products, suppliers, orders])
+  }, [query, products, suppliers, orders, activeBusinessType])
 
   const handleSelect = (item) => {
     dispatch(setCommandPaletteOpen(false))
@@ -271,10 +287,9 @@ export default function CommandPalette() {
                     </div>
                     <div>
                       <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{item.title}</div>
-                      <div
-                        style={{ fontSize: '0.75rem', color: '#64748b' }}
-                        dangerouslySetInnerHTML={{ __html: item.subtitle }}
-                      />
+                      <div style={{ fontSize: '0.75rem', color: 'var(--erp-text-muted)' }}>
+                        {item.subtitle}
+                      </div>
                     </div>
                   </div>
 

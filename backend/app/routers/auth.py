@@ -73,7 +73,7 @@ def logout(
         user=current_user,
         access_token=token,
         refresh_token=req.refresh_token if req else None,
-        revoke_all=bool(req.revoke_all) if req else False,
+        revoke_all=req.revoke_all if req else False,
     )
     return {"message": "Signed out successfully."}
 

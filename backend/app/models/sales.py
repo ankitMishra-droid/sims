@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
+from typing import Optional
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
-    Column,
     DateTime,
     Float,
     ForeignKey,
@@ -10,13 +11,14 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false as sa_false,
     func,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..database import base
 
 
-def _utcnow():
+def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
@@ -30,16 +32,17 @@ class Sale(base):
         CheckConstraint("revenue >= 0", name="ck_sale_revenue_non_negative"),
     )
 
-    id = Column(Integer, primary_key=True, index=True)
-    business_id = Column(Integer, ForeignKey("businesses.id"), nullable=False, index=True)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
-    sales_date = Column(DateTime, default=_utcnow, server_default=func.now(), index=True)
-    quantity_sold = Column(Integer, nullable=False)
-    selling_price = Column(Float, nullable=False)
-    revenue = Column(Float, nullable=False)
-    status = Column(String(20), nullable=False, default="COMPLETED")
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    idempotency_key = Column(String(120), nullable=True)
-    notes = Column(Text, nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    business_id: Mapped[int] = mapped_column(Integer, ForeignKey("businesses.id"), nullable=False, index=True)
+    product_id: Mapped[int] = mapped_column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    sales_date: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, server_default=func.now(), index=True)
+    quantity_sold: Mapped[int] = mapped_column(Integer, nullable=False)
+    selling_price: Mapped[float] = mapped_column(Float, nullable=False)
+    revenue: Mapped[float] = mapped_column(Float, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="COMPLETED")
+    created_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    is_synthetic: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false())
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     product = relationship("Product", back_populates="sales")

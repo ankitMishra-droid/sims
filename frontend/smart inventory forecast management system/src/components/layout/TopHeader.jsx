@@ -1,74 +1,33 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useSelector, useDispatch } from 'react-redux'
-import { Menu, Search, Sun, Moon, LogOut, UserCircle, Languages, Building2 } from 'lucide-react'
+import { Menu, Search, Sun, Moon, LogOut, UserCircle, Languages, Building2, Sparkles } from 'lucide-react'
 import {
   setCommandPaletteOpen,
   toggleMobileSidebar,
   toggleTheme,
-  setLanguage,
-  addToast,
 } from '../../store/uiSlice'
-import { logout, switchWorkspaceReset, updateUserProfile, setWorkspaces } from '../../store/authSlice'
-import { api } from '../../api'
+import { toggleAssistantOpen } from '../../store/aiSlice'
 import { useTranslation } from '../../hooks/useTranslation'
+import { useSessionActions } from '../../hooks/useSessionActions'
+import faviconImg from '../../assets/images/favicon.png'
 
 export default function TopHeader() {
-  const navigate = useNavigate()
   const dispatch = useDispatch()
   const { t, language } = useTranslation()
+  const { getHomePath, switchWorkspace, toggleLanguage, signOut } = useSessionActions()
   const theme = useSelector((state) => state.ui.theme)
-  const { user, refreshToken, workspaces, currentWorkspace, isAuthenticated } = useSelector((state) => state.auth)
+  const mobileOpen = useSelector((state) => state.ui.mobileSidebarOpen)
+  const { isOpen: aiOpen, isMinimized: aiMinimized } = useSelector((state) => state.ai)
+  const { user, workspaces, currentWorkspace, isAuthenticated } = useSelector((state) => state.auth)
   const [switching, setSwitching] = useState(false)
-
-  const handleLogout = async () => {
-    try {
-      await api.logout({ refresh_token: refreshToken })
-    } catch {
-      // proceed clearing local state regardless
-    }
-    dispatch(logout())
-    navigate('/login', { replace: true })
-  }
-
-  const handleLanguageToggle = async () => {
-    const next = language === 'en' ? 'hi' : 'en'
-    dispatch(setLanguage(next))
-    if (isAuthenticated) {
-      try {
-        const updated = await api.updateMe({ preferred_language: next })
-        dispatch(updateUserProfile(updated))
-      } catch {
-        // non-blocking
-      }
-    }
-  }
+  const canUseAi = Boolean(isAuthenticated && user && currentWorkspace?.business?.id)
+  const isAiExpanded = Boolean(canUseAi && aiOpen && !aiMinimized)
 
   const handleWorkspaceChange = async (e) => {
-    const val = e.target.value
-    if (val === '__manage__') {
-      navigate('/workspaces')
-      return
-    }
-    const targetId = Number(val)
-    if (!targetId || targetId === currentWorkspace?.business?.id) return
     setSwitching(true)
     try {
-      const res = await api.switchWorkspace(targetId)
-      dispatch(
-        switchWorkspaceReset({
-          token: res.access_token,
-          refreshToken: res.refresh_token,
-          user: res.user,
-          workspace: res.workspace,
-        })
-      )
-      const list = await api.getWorkspaces()
-      dispatch(setWorkspaces(list))
-      dispatch(addToast({ type: 'success', message: `Workspace: ${res.workspace.business.name}` }))
-      navigate(res.workspace.business.business_type === 'supplier' ? '/supplier-portal' : '/dashboard')
-    } catch (err) {
-      dispatch(addToast({ type: 'error', message: err.message || 'Workspace switch failed' }))
+      await switchWorkspace(e.target.value)
     } finally {
       setSwitching(false)
     }
@@ -77,29 +36,25 @@ export default function TopHeader() {
   return (
     <header className="app-header">
       <div className="app-header-left">
-        <button
-          type="button"
-          className="mobile-menu-btn"
-          onClick={() => dispatch(toggleMobileSidebar())}
-          aria-label="Open navigation menu"
-        >
-          <Menu size={18} />
-        </button>
+        <Link to={getHomePath()} className="mobile-header-brand" aria-label={t('brandName', 'StockSangati')}>
+          <img src={faviconImg} alt="StockSangati" className="sidebar-logo" />
+          <span className="mobile-header-brand-text">{t('brandName', 'StockSangati')}</span>
+        </Link>
 
         <button
           type="button"
-          className="header-chip-btn"
+          className="header-chip-btn desktop-only"
           onClick={() => dispatch(setCommandPaletteOpen(true))}
           title="Quick Search (Ctrl+K)"
         >
           <Search size={14} />
           <span>{t('common.quickSearch', 'Quick search...')}</span>
-          <kbd style={{ fontSize: '0.675rem', opacity: 0.7, fontFamily: 'var(--font-mono)' }}>Ctrl+K</kbd>
+          <kbd className="header-search-kbd" style={{ fontSize: '0.675rem', opacity: 0.7, fontFamily: 'var(--font-mono)' }}>Ctrl+K</kbd>
         </button>
 
         {workspaces.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-            <Building2 size={14} style={{ color: 'var(--erp-brand)' }} />
+          <div className="desktop-only" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', minWidth: 0 }}>
+            <Building2 size={14} style={{ color: 'var(--erp-brand)', flexShrink: 0 }} />
             <select
               aria-label="Switch active business workspace"
               disabled={switching}
@@ -121,8 +76,35 @@ export default function TopHeader() {
       <div className="app-header-right">
         <button
           type="button"
-          className="header-chip-btn"
-          onClick={handleLanguageToggle}
+          id="mobile-nav-toggle-btn"
+          className="mobile-menu-btn"
+          onClick={() => dispatch(toggleMobileSidebar())}
+          aria-label={mobileOpen ? t('common.closeMenu', 'Close navigation menu') : t('common.openMenu', 'Open navigation menu')}
+          aria-expanded={mobileOpen}
+          aria-controls="app-navigation-drawer"
+        >
+          <Menu size={18} />
+        </button>
+
+        {canUseAi && (
+          <button
+            type="button"
+            className={`header-chip-btn header-ai-btn desktop-only ${isAiExpanded ? 'active' : ''}`}
+            onClick={() => dispatch(toggleAssistantOpen())}
+            title={t('ai.assistantTooltip', 'Open AI Assistant')}
+            aria-label={t('ai.navButton', 'StockSangati AI')}
+            aria-expanded={isAiExpanded}
+            aria-controls="stocksangati-ai-dialog"
+          >
+            <Sparkles size={14} />
+            <span>{t('ai.navButton', 'StockSangati AI')}</span>
+          </button>
+        )}
+
+        <button
+          type="button"
+          className="header-chip-btn desktop-only"
+          onClick={toggleLanguage}
           title="Switch Language (English / Hindi)"
         >
           <Languages size={14} />
@@ -131,37 +113,27 @@ export default function TopHeader() {
 
         <button
           type="button"
-          className="header-chip-btn"
+          className="header-chip-btn desktop-only"
           onClick={() => dispatch(toggleTheme())}
           aria-label="Toggle color theme"
         >
           {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
         </button>
 
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.4rem',
-            padding: '0.3rem 0.65rem',
-            borderRadius: 'var(--radius-md)',
-            border: '1px solid var(--erp-border)',
-            fontSize: '0.775rem',
-          }}
-        >
-          <UserCircle size={15} style={{ color: 'var(--erp-brand)' }} />
-          <span style={{ fontWeight: 600, color: 'var(--erp-text-main)' }}>
+        <div className="header-user-chip desktop-only">
+          <UserCircle size={15} style={{ color: 'var(--erp-brand)', flexShrink: 0 }} />
+          <span style={{ fontWeight: 600, color: 'var(--erp-text-main)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {user?.name || 'User'}
           </span>
-          <span style={{ color: 'var(--erp-text-muted)', textTransform: 'uppercase', fontSize: '0.675rem' }}>
+          <span style={{ color: 'var(--erp-text-muted)', textTransform: 'uppercase', fontSize: '0.675rem', flexShrink: 0 }}>
             {currentWorkspace?.role || user?.role}
           </span>
         </div>
 
         <button
           type="button"
-          className="header-chip-btn"
-          onClick={handleLogout}
+          className="header-chip-btn desktop-only"
+          onClick={signOut}
           title={t('common.signOut', 'Sign Out')}
           style={{ color: 'var(--status-danger-text)' }}
         >

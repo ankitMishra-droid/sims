@@ -1,15 +1,19 @@
+import logging
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..dependencies.authorization import BusinessContext, require_business_roles
+from ..dependencies.authorization import BusinessContext, require_business_roles, require_business_types
 from ..models.products import Product
 from ..ml.simulation_service import ScenarioSimulationService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/simulator",
     tags=["What-If Scenario Simulation"],
+    dependencies=[Depends(require_business_types(["retailer", "wholesaler"]))],
 )
 
 READ_ROLES = ["admin", "manager", "analyst", "staff"]
@@ -50,9 +54,14 @@ def run_scenario_simulation(
             service_level=req.service_level,
             planned_restock_qty=req.planned_restock_qty,
             restock_day=req.restock_day,
+            business_id=ctx.business_id,
         )
         return {"status": "success", "data": result}
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Simulation error: {str(e)}")
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Simulation product data not found.")
+    except Exception:
+        logger.exception("Simulation error business_id=%s product_id=%s", ctx.business_id, req.product_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to run scenario simulation.",
+        )

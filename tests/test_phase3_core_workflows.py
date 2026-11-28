@@ -447,6 +447,7 @@ def test_concurrent_stock_deduction_prevents_negative_stock(tmp_path):
     assert sorted(outcomes) == ["OK", "REJECTED"]
     with SessionMaker() as db:
         final_prod = db.query(models.Product).filter(models.Product.id == prod_id).first()
+        assert final_prod is not None
         assert final_prod.current_stock == 4
         logs = db.query(models.InventoryLog).filter(models.InventoryLog.product_id == prod_id).all()
         assert len(logs) == 1

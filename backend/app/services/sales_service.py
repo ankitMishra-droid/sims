@@ -113,10 +113,10 @@ class SalesService:
         except HTTPException:
             db.rollback()
             raise
-        except Exception as exc:
+        except Exception:
             db.rollback()
             logger.exception("Failed creating sale product_id=%s", payload.product_id)
-            raise HTTPException(status_code=500, detail=f"Failed to record sale: {exc}")
+            raise HTTPException(status_code=500, detail="Failed to record sale.")
 
     @classmethod
     def cancel_sale(
@@ -159,10 +159,10 @@ class SalesService:
         except HTTPException:
             db.rollback()
             raise
-        except Exception as exc:
+        except Exception:
             db.rollback()
             logger.exception("Failed cancelling sale id=%s", sale_id)
-            raise HTTPException(status_code=500, detail=f"Failed to cancel sale: {exc}")
+            raise HTTPException(status_code=500, detail="Failed to cancel sale.")
 
     @staticmethod
     def list_sales(

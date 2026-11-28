@@ -23,8 +23,10 @@ Phase 5 authentication hardening, multi-business workspaces, role-based access c
 | **Regional Languages & i18n (Phase 5)** | **[VERIFIED COMPLETE]** | Full `en`/`hi` dictionary (`translations.js`), `User.preferred_language` persistence (`PATCH /api/auth/me`), instant switching without logout, 10 upcoming regional placeholders with safe English fallback + `dir="rtl"` prep for Urdu. |
 | **ERP Core & Redesigned Frontend (Phases 3–4)** | **[VERIFIED COMPLETE]** | Authoritative `stock_service`, idempotent sales & PO goods receipts, grouped `Sidebar`, `TopHeader`, split operational pages, live Chart.js reports, `React.lazy` chunks. |
 
-### 2.2 Remaining for Upcoming Phases
+### 2.2 Completed Phase 6–7 & Upcoming Phases
 | Phase | Scope |
 | :--- | :--- |
-| **Phase 6 (Next)** | Cold-start inventory planning for zero-sales products and persisted champion model caching (eliminating cold ML timeouts across multi-product catalogs). |
-| **Phases 7–9** | Free-tier Gemini Flash + `gemini-embedding-001` + Qdrant Cloud RAG pipeline, AI assistant with live business tools, expanded regional dictionary packs, and test-mode AI credit ledger. |
+| **Phase 6 (Completed)** | Cold-start inventory planning, PostgreSQL/SQLite Alembic compatibility, safety stock, dynamic reorder points, anomaly detection, and persisted champion model forecasting. |
+| **Phase 7 (Completed)** | Enterprise Google Gemini LLM (`google-genai`) & Embedding (`gemini-embedding-001`, 1536 dims) services, tenant-isolated Qdrant vector store (`qdrant-client`), bounded `Retry-After` error handling, FastAPI lifespan management, and RBAC `/api/ai/health` diagnostics. |
+| **Phase 8 (Completed)** | Production RAG ingestion (`PDF`, `DOCX`, `TXT`, `CSV`, `XLSX`) with scanned-PDF detection & resumable checkpoints, Hindi/English/Hinglish retrieval + evaluation harness, authorized live SQL & Phase 6 forecasting tools, confirmation-gated PO actions, `/ai-knowledge` manager, and Global Floating AI Assistant. |
+| **Phases 9–10 (Upcoming)** | Expanded regional dictionary packs, test-mode AI credit/quota billing ledger, and final deployment hardening. |

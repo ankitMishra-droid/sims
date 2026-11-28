@@ -16,13 +16,16 @@ import { selectAllSuppliers, fetchSuppliers } from '../store/suppliersSlice'
 import PageHeader from '../components/common/PageHeader'
 import DataTable from '../components/common/DataTable'
 import CsvExportButton from '../components/common/CsvExportButton'
+import ProductCsvImportButton from '../components/products/ProductCsvImportButton'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'
 import ProductFormModal from '../components/products/ProductFormModal'
 import { ErrorState, ConfirmDialog } from '../components/common/StateBlocks'
+import { useTranslation } from '../hooks/useTranslation'
 
 export default function ProductsPage() {
   const dispatch = useDispatch()
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const products = useSelector(selectAllProducts)
   const loading = useSelector(selectProductsLoading)
@@ -102,7 +105,18 @@ export default function ProductsPage() {
         sortable: true,
         render: (p) => (
           <div>
-            <div style={{ fontWeight: 600 }}>{p.name}</div>
+            <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+              <span>{p.name}</span>
+              {p.is_synthetic && (
+                <span
+                  className="badge badge-draft"
+                  title="Historical simulation / synthetic demo SKU"
+                  style={{ fontSize: '0.68rem', padding: '0.1rem 0.4rem' }}
+                >
+                  {t('intelligence.syntheticDemoTag', 'Synthetic Demo')}
+                </span>
+              )}
+            </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--erp-text-muted)' }}>
               {p.category || 'General'} • {p.unit}
             </div>
@@ -191,7 +205,7 @@ export default function ProductsPage() {
         ),
       },
     ],
-    []
+    [t]
   )
 
   return (
@@ -201,6 +215,7 @@ export default function ProductsPage() {
         subtitle={`${filteredProducts.length} active products`}
         actions={
           <>
+            <ProductCsvImportButton onImported={() => dispatch(fetchProducts())} />
             <CsvExportButton data={filteredProducts} filename="products" />
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => dispatch(fetchProducts())} disabled={loading}>
               <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
@@ -229,7 +244,8 @@ export default function ProductsPage() {
           type="text"
           className="form-control"
           style={{ flex: '1 1 240px', maxWidth: '360px' }}
-          placeholder="Search SKU, name, or category..."
+          placeholder={t('placeholders.searchProducts', 'Search by product name, SKU, or category...')}
+          aria-label="Search products"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />

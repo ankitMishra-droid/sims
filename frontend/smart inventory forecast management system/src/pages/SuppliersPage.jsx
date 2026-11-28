@@ -15,14 +15,18 @@ import { api } from '../api'
 import { addToast } from '../store/uiSlice'
 import PageHeader from '../components/common/PageHeader'
 import DataTable from '../components/common/DataTable'
+import FormField from '../components/common/FormField'
 import CsvExportButton from '../components/common/CsvExportButton'
 import Modal from '../components/Modal'
 import Badge from '../components/Badge'
 import { ErrorState, ConfirmDialog } from '../components/common/StateBlocks'
+import { useTranslation } from '../hooks/useTranslation'
+import { validateAndBuildSupplierPayload } from '../utils/formHelpers'
 
 export default function SuppliersPage() {
   const navigate = useNavigate()
   const dispatch = useDispatch()
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const suppliers = useSelector(selectAllSuppliers)
   const loading = useSelector(selectSuppliersLoading)
@@ -52,7 +56,7 @@ export default function SuppliersPage() {
 
   const openAdd = () => {
     setSelectedSupplier(null)
-    setFormData({ name: '', contact_person: '', email: '', phone: '', address: '', lead_time_days: 7 })
+    setFormData({ name: '', contact_person: '', email: '', phone: '', address: '', lead_time_days: '7' })
     setFormError('')
     setModalMode('add')
   }
@@ -65,7 +69,7 @@ export default function SuppliersPage() {
       email: s.email || '',
       phone: s.phone || '',
       address: s.address || '',
-      lead_time_days: s.lead_time_days ?? 7,
+      lead_time_days: String(s.lead_time_days ?? 7),
     })
     setFormError('')
     setModalMode('edit')
@@ -73,26 +77,15 @@ export default function SuppliersPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (submitting) return
     setFormError('')
-    if (!formData.name.trim()) {
-      setFormError('Supplier name is required.')
-      return
-    }
-    const leadDays = parseInt(formData.lead_time_days, 10)
-    if (isNaN(leadDays) || leadDays < 0 || leadDays > 365) {
-      setFormError('Lead time days must be between 0 and 365.')
+    const { error: validationError, payload } = validateAndBuildSupplierPayload(formData)
+    if (validationError || !payload) {
+      setFormError(validationError || 'Please review supplier details.')
       return
     }
 
     setSubmitting(true)
-    const payload = {
-      name: formData.name.trim(),
-      contact_person: formData.contact_person.trim() || null,
-      email: formData.email.trim() || null,
-      phone: formData.phone.trim() || null,
-      address: formData.address.trim() || null,
-      lead_time_days: leadDays,
-    }
     const action =
       modalMode === 'edit' && selectedSupplier
         ? updateSupplier({ id: selectedSupplier.id, payload })
@@ -196,7 +189,8 @@ export default function SuppliersPage() {
           type="text"
           className="form-control"
           style={{ maxWidth: '380px' }}
-          placeholder="Search supplier by name, contact, email, or phone..."
+          placeholder={t('placeholders.searchSuppliers', 'Search supplier by name, contact, email, or phone...')}
+          aria-label="Search suppliers"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
@@ -229,71 +223,74 @@ export default function SuppliersPage() {
               </div>
             )}
             <div className="form-grid">
-              <div className="form-group">
-                <label className="form-label" htmlFor="sup-name">
-                  Supplier Name <span className="required">*</span>
-                </label>
+              <FormField label="Supplier Name" htmlFor="sup-name" required>
                 <input
                   id="sup-name"
                   type="text"
                   required
                   className="form-control"
+                  placeholder={t('placeholders.supplierName', 'e.g. ABC Wholesale Distributors')}
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
                 />
-              </div>
-              <div className="form-group">
-                <label className="form-label" htmlFor="sup-contact">Contact Person</label>
+              </FormField>
+              <FormField label="Contact Person" htmlFor="sup-contact">
                 <input
                   id="sup-contact"
                   type="text"
                   className="form-control"
+                  placeholder={t('placeholders.supplierContact', 'e.g. Rajesh Verma')}
                   value={formData.contact_person}
-                  onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, contact_person: e.target.value }))}
                 />
-              </div>
-              <div className="form-group">
-                <label className="form-label" htmlFor="sup-email">Email</label>
+              </FormField>
+              <FormField label="Email" htmlFor="sup-email">
                 <input
                   id="sup-email"
                   type="email"
                   className="form-control"
+                  placeholder={t('placeholders.supplierEmail', 'e.g. orders@example.com')}
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
                 />
-              </div>
-              <div className="form-group">
-                <label className="form-label" htmlFor="sup-phone">Phone</label>
+              </FormField>
+              <FormField label="Phone" htmlFor="sup-phone">
                 <input
                   id="sup-phone"
                   type="text"
                   className="form-control"
+                  placeholder={t('placeholders.supplierPhone', 'e.g. +91 98765 43210')}
                   value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
                 />
-              </div>
-              <div className="form-group">
-                <label className="form-label" htmlFor="sup-lead">Lead Time (Days)</label>
+              </FormField>
+              <FormField
+                label="Lead Time (Days)"
+                htmlFor="sup-lead"
+                hint="Typical days from PO dispatch to warehouse receipt (0–365)."
+              >
                 <input
                   id="sup-lead"
                   type="number"
                   min="0"
                   max="365"
+                  step="1"
                   className="form-control"
+                  placeholder={t('placeholders.supplierLeadDays', 'e.g. 7')}
                   value={formData.lead_time_days}
-                  onChange={(e) => setFormData({ ...formData, lead_time_days: e.target.value })}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, lead_time_days: e.target.value }))}
                 />
-              </div>
-              <div className="form-group col-span-2">
-                <label className="form-label" htmlFor="sup-addr">Address</label>
+              </FormField>
+              <FormField label="Address" htmlFor="sup-addr" className="col-span-2">
                 <input
                   id="sup-addr"
                   type="text"
                   className="form-control"
+                  placeholder={t('placeholders.supplierAddress', 'e.g. Plot 14, Market Yard, Jaipur')}
                   value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))}
                 />
-              </div>
+              </FormField>
             </div>
           </div>
           <div className="modal-footer">

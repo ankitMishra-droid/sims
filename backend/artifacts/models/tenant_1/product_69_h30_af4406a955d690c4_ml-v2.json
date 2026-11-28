@@ -1,0 +1,16 @@
+{
+  "business_id": 1,
+  "product_id": 69,
+  "horizon_days": 30,
+  "model_version": "ml-v2",
+  "dataset_version": "af4406a955d690c4",
+  "champion_model": "CrostonSBA",
+  "champion_display_name": "Croston SBA Baseline",
+  "previous_champion_model": null,
+  "hierarchical_level": "LEVEL_1_TENANT_PRODUCT",
+  "training_start_date": "2026-06-01",
+  "training_end_date": "2026-11-14",
+  "backtest_start_date": "2026-10-18",
+  "backtest_end_date": "2026-11-28",
+  "expected_total_demand": 168.0
+}

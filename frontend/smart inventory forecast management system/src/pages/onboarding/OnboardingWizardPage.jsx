@@ -19,6 +19,7 @@ import { useTranslation } from '../../hooks/useTranslation'
 import PageHeader from '../../components/common/PageHeader'
 import Badge from '../../components/Badge'
 import { LoadingState, ErrorState } from '../../components/common/StateBlocks'
+import { createStableRowKey } from '../../utils/formHelpers'
 
 const OPTIONAL_STEPS = new Set([6, 7, 8, 9])
 
@@ -48,13 +49,13 @@ export default function OnboardingWizardPage() {
     low_stock_threshold_default: 10,
     allow_negative_stock: false,
   })
-  const [draftProducts, setDraftProducts] = useState([
-    { sku: '', name: '', category: 'General', unit: 'piece', cost_price: '', selling_price: '', reorder_level: 10 },
+  const [draftProducts, setDraftProducts] = useState(() => [
+    { _key: createStableRowKey('onb-prod'), sku: '', name: '', category: 'General', unit: 'piece', cost_price: '', selling_price: '', reorder_level: '10' },
   ])
   const [csvPreviewRows, setCsvPreviewRows] = useState([])
   const [csvResultMsg, setCsvResultMsg] = useState('')
-  const [draftSuppliers, setDraftSuppliers] = useState([
-    { name: '', contact_person: '', email: '', phone: '', lead_time_days: 7 },
+  const [draftSuppliers, setDraftSuppliers] = useState(() => [
+    { _key: createStableRowKey('onb-sup'), name: '', contact_person: '', email: '', phone: '', lead_time_days: '7' },
   ])
   const [openingEntries, setOpeningEntries] = useState({})
 
@@ -231,13 +232,13 @@ export default function OnboardingWizardPage() {
                     backgroundColor: completedSteps.has(st)
                       ? 'var(--status-success-bg)'
                       : st === currentStep
-                      ? 'var(--erp-brand-subtle)'
-                      : 'transparent',
+                        ? 'var(--erp-brand-subtle)'
+                        : 'transparent',
                     color: completedSteps.has(st)
                       ? 'var(--status-success-text)'
                       : st === currentStep
-                      ? 'var(--erp-brand)'
-                      : 'var(--erp-text-muted)',
+                        ? 'var(--erp-brand)'
+                        : 'var(--erp-text-muted)',
                     fontWeight: st === currentStep ? 'var(--font-weight-semibold)' : 'var(--font-weight-medium)',
                   }}
                 >
@@ -303,51 +304,61 @@ export default function OnboardingWizardPage() {
           {currentStep === 4 && (
             <div className="form-grid">
               <div className="form-group">
-                <label className="form-label">
+                <label className="form-label" htmlFor="onb-biz-name">
                   Business Name <span className="required">*</span>
                 </label>
                 <input
+                  id="onb-biz-name"
                   type="text"
                   className="form-control"
+                  placeholder={t('placeholders.businessName', 'e.g. Sangati Supermart')}
                   value={profile.name}
-                  onChange={(e) => setProfile({ ...profile, name: e.target.value })}
+                  onChange={(e) => setProfile((prev) => ({ ...prev, name: e.target.value }))}
                   required
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">Contact Phone</label>
+                <label className="form-label" htmlFor="onb-biz-phone">Contact Phone</label>
                 <input
+                  id="onb-biz-phone"
                   type="text"
                   className="form-control"
+                  placeholder={t('placeholders.supplierPhone', 'e.g. +91 98765 43210')}
                   value={profile.contact_phone}
-                  onChange={(e) => setProfile({ ...profile, contact_phone: e.target.value })}
+                  onChange={(e) => setProfile((prev) => ({ ...prev, contact_phone: e.target.value }))}
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">Contact Email</label>
+                <label className="form-label" htmlFor="onb-biz-email">Contact Email</label>
                 <input
+                  id="onb-biz-email"
                   type="email"
                   className="form-control"
+                  placeholder={t('placeholders.workEmail', 'e.g. name@company.com')}
                   value={profile.contact_email}
-                  onChange={(e) => setProfile({ ...profile, contact_email: e.target.value })}
+                  onChange={(e) => setProfile((prev) => ({ ...prev, contact_email: e.target.value }))}
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">GSTIN / Tax ID</label>
+                <label className="form-label" htmlFor="onb-biz-gstin">GSTIN / Tax ID</label>
                 <input
+                  id="onb-biz-gstin"
                   type="text"
                   className="form-control"
+                  placeholder={t('placeholders.gstin', 'e.g. 27AAACS1234F1Z5')}
                   value={profile.gstin_or_tax_id}
-                  onChange={(e) => setProfile({ ...profile, gstin_or_tax_id: e.target.value })}
+                  onChange={(e) => setProfile((prev) => ({ ...prev, gstin_or_tax_id: e.target.value }))}
                 />
               </div>
               <div className="form-group col-span-2">
-                <label className="form-label">Address</label>
+                <label className="form-label" htmlFor="onb-biz-address">Address</label>
                 <input
+                  id="onb-biz-address"
                   type="text"
                   className="form-control"
+                  placeholder={t('placeholders.supplierAddress', 'e.g. Plot 14, Market Yard, Jaipur')}
                   value={profile.address}
-                  onChange={(e) => setProfile({ ...profile, address: e.target.value })}
+                  onChange={(e) => setProfile((prev) => ({ ...prev, address: e.target.value }))}
                 />
               </div>
             </div>
@@ -356,22 +367,27 @@ export default function OnboardingWizardPage() {
           {currentStep === 5 && (
             <div className="form-grid">
               <div className="form-group">
-                <label className="form-label">Currency</label>
+                <label className="form-label" htmlFor="onb-pref-currency">Currency</label>
                 <input
+                  id="onb-pref-currency"
                   type="text"
                   className="form-control"
+                  placeholder={t('placeholders.currency', 'e.g. INR')}
                   value={prefs.currency}
-                  onChange={(e) => setPrefs({ ...prefs, currency: e.target.value })}
+                  onChange={(e) => setPrefs((prev) => ({ ...prev, currency: e.target.value }))}
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">Default Low-Stock Threshold</label>
+                <label className="form-label" htmlFor="onb-pref-threshold">Default Low-Stock Threshold</label>
                 <input
+                  id="onb-pref-threshold"
                   type="number"
                   min={0}
+                  step={1}
                   className="form-control"
+                  placeholder={t('placeholders.thresholdDefault', 'e.g. 20')}
                   value={prefs.low_stock_threshold_default}
-                  onChange={(e) => setPrefs({ ...prefs, low_stock_threshold_default: e.target.value })}
+                  onChange={(e) => setPrefs((prev) => ({ ...prev, low_stock_threshold_default: e.target.value }))}
                 />
               </div>
               <div className="form-group col-span-2">
@@ -379,7 +395,7 @@ export default function OnboardingWizardPage() {
                   <input
                     type="checkbox"
                     checked={prefs.allow_negative_stock}
-                    onChange={(e) => setPrefs({ ...prefs, allow_negative_stock: e.target.checked })}
+                    onChange={(e) => setPrefs((prev) => ({ ...prev, allow_negative_stock: e.target.checked }))}
                   />
                   <span>Allow negative stock on sales/adjustments</span>
                 </label>
@@ -413,17 +429,40 @@ export default function OnboardingWizardPage() {
                         const file = e.target.files?.[0]
                         if (!file) return
                         const text = await file.text()
+                        const parseCsvRow = (line) => {
+                          const out = []
+                          let cur = ''
+                          let inQuotes = false
+                          for (let idx = 0; idx < line.length; idx += 1) {
+                            const ch = line[idx]
+                            if (ch === '"') {
+                              if (inQuotes && line[idx + 1] === '"') {
+                                cur += '"'
+                                idx += 1
+                              } else {
+                                inQuotes = !inQuotes
+                              }
+                            } else if (ch === ',' && !inQuotes) {
+                              out.push(cur.trim())
+                              cur = ''
+                            } else {
+                              cur += ch
+                            }
+                          }
+                          out.push(cur.trim())
+                          return out
+                        }
                         const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
                         if (lines.length < 2) {
                           setCsvResultMsg('CSV must include header row and at least one data row.')
                           setCsvPreviewRows([])
                           return
                         }
-                        const headers = lines[0].split(',').map((h) => h.trim().toLowerCase())
+                        const headers = parseCsvRow(lines[0]).map((h) => h.replace(/^\ufeff/, '').toLowerCase())
                         const existingSkus = new Set(workspaceProducts.map((p) => String(p.sku).toLowerCase()))
                         const seenInFile = new Set()
                         const parsed = lines.slice(1).map((line, i) => {
-                          const cols = line.split(',').map((c) => c.trim())
+                          const cols = parseCsvRow(line)
                           const rec = {}
                           headers.forEach((h, idx) => { rec[h] = cols[idx] ?? '' })
                           const sku = String(rec.sku || '').trim()
@@ -494,13 +533,14 @@ export default function OnboardingWizardPage() {
                         className="btn btn-primary btn-sm"
                         onClick={() => {
                           const validRows = csvPreviewRows.filter((r) => r.valid).map((r) => ({
+                            _key: createStableRowKey('onb-prod'),
                             sku: r.sku,
                             name: r.name,
                             category: r.category,
                             unit: r.unit,
-                            cost_price: r.cost_price,
-                            selling_price: r.selling_price,
-                            reorder_level: r.reorder_level,
+                            cost_price: String(r.cost_price),
+                            selling_price: String(r.selling_price),
+                            reorder_level: String(r.reorder_level),
                           }))
                           if (validRows.length > 0) {
                             const nonEmptyExisting = draftProducts.filter((d) => d.sku.trim() || d.name.trim())
@@ -523,66 +563,72 @@ export default function OnboardingWizardPage() {
                 )}
               </div>
 
-              {draftProducts.map((row, idx) => (
-                <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1fr 1fr auto', gap: '0.5rem', alignItems: 'end' }}>
+              {draftProducts.map((row) => (
+                <div key={row._key} style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1fr 1fr auto', gap: '0.5rem', alignItems: 'end' }}>
                   <div className="form-group">
-                    <label className="form-label">SKU *</label>
+                    <label className="form-label" htmlFor={`onb-prod-sku-${row._key}`}>SKU <span className="required">*</span></label>
                     <input
+                      id={`onb-prod-sku-${row._key}`}
                       type="text"
                       className="form-control"
+                      placeholder={t('placeholders.productSku', 'e.g. RICE-001')}
                       value={row.sku}
                       onChange={(e) => {
-                        const copy = [...draftProducts]
-                        copy[idx].sku = e.target.value
-                        setDraftProducts(copy)
+                        const val = e.target.value
+                        setDraftProducts((prev) => prev.map((it) => (it._key === row._key ? { ...it, sku: val } : it)))
                       }}
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Product Name *</label>
+                    <label className="form-label" htmlFor={`onb-prod-name-${row._key}`}>Product Name <span className="required">*</span></label>
                     <input
+                      id={`onb-prod-name-${row._key}`}
                       type="text"
                       className="form-control"
+                      placeholder={t('placeholders.productName', 'e.g. Premium Basmati Rice 5kg')}
                       value={row.name}
                       onChange={(e) => {
-                        const copy = [...draftProducts]
-                        copy[idx].name = e.target.value
-                        setDraftProducts(copy)
+                        const val = e.target.value
+                        setDraftProducts((prev) => prev.map((it) => (it._key === row._key ? { ...it, name: val } : it)))
                       }}
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Cost Price</label>
+                    <label className="form-label" htmlFor={`onb-prod-cost-${row._key}`}>Cost Price</label>
                     <input
+                      id={`onb-prod-cost-${row._key}`}
                       type="number"
                       min={0}
+                      step="0.01"
                       className="form-control"
+                      placeholder={t('placeholders.costPrice', 'e.g. 45.00')}
                       value={row.cost_price}
                       onChange={(e) => {
-                        const copy = [...draftProducts]
-                        copy[idx].cost_price = e.target.value
-                        setDraftProducts(copy)
+                        const val = e.target.value
+                        setDraftProducts((prev) => prev.map((it) => (it._key === row._key ? { ...it, cost_price: val } : it)))
                       }}
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Selling Price</label>
+                    <label className="form-label" htmlFor={`onb-prod-sell-${row._key}`}>Selling Price</label>
                     <input
+                      id={`onb-prod-sell-${row._key}`}
                       type="number"
                       min={0}
+                      step="0.01"
                       className="form-control"
+                      placeholder={t('placeholders.sellingPrice', 'e.g. 60.00')}
                       value={row.selling_price}
                       onChange={(e) => {
-                        const copy = [...draftProducts]
-                        copy[idx].selling_price = e.target.value
-                        setDraftProducts(copy)
+                        const val = e.target.value
+                        setDraftProducts((prev) => prev.map((it) => (it._key === row._key ? { ...it, selling_price: val } : it)))
                       }}
                     />
                   </div>
                   <button
                     type="button"
                     className="btn-action-icon danger"
-                    onClick={() => setDraftProducts(draftProducts.filter((_, i) => i !== idx))}
+                    onClick={() => setDraftProducts((prev) => prev.filter((it) => it._key !== row._key))}
                     disabled={draftProducts.length <= 1}
                     title="Remove row"
                   >
@@ -595,9 +641,9 @@ export default function OnboardingWizardPage() {
                   type="button"
                   className="btn btn-secondary btn-sm"
                   onClick={() =>
-                    setDraftProducts([
-                      ...draftProducts,
-                      { sku: '', name: '', category: 'General', unit: 'piece', cost_price: '', selling_price: '', reorder_level: 10 },
+                    setDraftProducts((prev) => [
+                      ...prev,
+                      { _key: createStableRowKey('onb-prod'), sku: '', name: '', category: 'General', unit: 'piece', cost_price: '', selling_price: '', reorder_level: '10' },
                     ])
                   }
                 >
@@ -610,65 +656,70 @@ export default function OnboardingWizardPage() {
 
           {currentStep === 7 && (
             <div style={{ display: 'grid', gap: '0.8rem' }}>
-              {draftSuppliers.map((row, idx) => (
-                <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 0.7fr auto', gap: '0.5rem', alignItems: 'end' }}>
+              {draftSuppliers.map((row) => (
+                <div key={row._key} style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 0.7fr auto', gap: '0.5rem', alignItems: 'end' }}>
                   <div className="form-group">
-                    <label className="form-label">Supplier Name *</label>
+                    <label className="form-label" htmlFor={`onb-sup-name-${row._key}`}>Supplier Name <span className="required">*</span></label>
                     <input
+                      id={`onb-sup-name-${row._key}`}
                       type="text"
                       className="form-control"
+                      placeholder={t('placeholders.supplierName', 'e.g. ABC Wholesale Distributors')}
                       value={row.name}
                       onChange={(e) => {
-                        const copy = [...draftSuppliers]
-                        copy[idx].name = e.target.value
-                        setDraftSuppliers(copy)
+                        const val = e.target.value
+                        setDraftSuppliers((prev) => prev.map((it) => (it._key === row._key ? { ...it, name: val } : it)))
                       }}
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Contact Person</label>
+                    <label className="form-label" htmlFor={`onb-sup-contact-${row._key}`}>Contact Person</label>
                     <input
+                      id={`onb-sup-contact-${row._key}`}
                       type="text"
                       className="form-control"
+                      placeholder={t('placeholders.supplierContact', 'e.g. Rajesh Verma')}
                       value={row.contact_person}
                       onChange={(e) => {
-                        const copy = [...draftSuppliers]
-                        copy[idx].contact_person = e.target.value
-                        setDraftSuppliers(copy)
+                        const val = e.target.value
+                        setDraftSuppliers((prev) => prev.map((it) => (it._key === row._key ? { ...it, contact_person: val } : it)))
                       }}
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Phone</label>
+                    <label className="form-label" htmlFor={`onb-sup-phone-${row._key}`}>Phone</label>
                     <input
+                      id={`onb-sup-phone-${row._key}`}
                       type="text"
                       className="form-control"
+                      placeholder={t('placeholders.supplierPhone', 'e.g. +91 98765 43210')}
                       value={row.phone}
                       onChange={(e) => {
-                        const copy = [...draftSuppliers]
-                        copy[idx].phone = e.target.value
-                        setDraftSuppliers(copy)
+                        const val = e.target.value
+                        setDraftSuppliers((prev) => prev.map((it) => (it._key === row._key ? { ...it, phone: val } : it)))
                       }}
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Lead Days</label>
+                    <label className="form-label" htmlFor={`onb-sup-lead-${row._key}`}>Lead Days</label>
                     <input
+                      id={`onb-sup-lead-${row._key}`}
                       type="number"
-                      min={1}
+                      min={0}
+                      step={1}
                       className="form-control"
+                      placeholder={t('placeholders.supplierLeadDays', 'e.g. 7')}
                       value={row.lead_time_days}
                       onChange={(e) => {
-                        const copy = [...draftSuppliers]
-                        copy[idx].lead_time_days = e.target.value
-                        setDraftSuppliers(copy)
+                        const val = e.target.value
+                        setDraftSuppliers((prev) => prev.map((it) => (it._key === row._key ? { ...it, lead_time_days: val } : it)))
                       }}
                     />
                   </div>
                   <button
                     type="button"
                     className="btn-action-icon danger"
-                    onClick={() => setDraftSuppliers(draftSuppliers.filter((_, i) => i !== idx))}
+                    onClick={() => setDraftSuppliers((prev) => prev.filter((it) => it._key !== row._key))}
                     disabled={draftSuppliers.length <= 1}
                     title="Remove row"
                   >
@@ -681,9 +732,9 @@ export default function OnboardingWizardPage() {
                   type="button"
                   className="btn btn-secondary btn-sm"
                   onClick={() =>
-                    setDraftSuppliers([
-                      ...draftSuppliers,
-                      { name: '', contact_person: '', email: '', phone: '', lead_time_days: 7 },
+                    setDraftSuppliers((prev) => [
+                      ...prev,
+                      { _key: createStableRowKey('onb-sup'), name: '', contact_person: '', email: '', phone: '', lead_time_days: '7' },
                     ])
                   }
                 >
@@ -724,7 +775,8 @@ export default function OnboardingWizardPage() {
                     <input
                       type="number"
                       min={0}
-                      placeholder="Opening qty"
+                      placeholder={t('placeholders.openingStock', 'e.g. 25')}
+                      aria-label={`Opening stock for ${p.name}`}
                       className="form-control"
                       style={{ width: '140px' }}
                       value={openingEntries[p.id] ?? ''}
@@ -742,14 +794,14 @@ export default function OnboardingWizardPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.85rem' }}>
               {(businessType === 'supplier'
                 ? [
-                    { title: 'Shared Purchase Orders', desc: 'View only POs explicitly shared with your supplier workspace.' },
-                    { title: 'Dispatch & Updates', desc: 'Acknowledge orders and record dispatch milestones safely.' },
-                  ]
+                  { title: 'Shared Purchase Orders', desc: 'View only POs explicitly shared with your supplier workspace.' },
+                  { title: 'Dispatch & Updates', desc: 'Acknowledge orders and record dispatch milestones safely.' },
+                ]
                 : [
-                    { title: 'Inventory & Ledger', desc: 'Track on-hand, incoming PO stock, and auditable movements.' },
-                    { title: 'Sales & POS', desc: 'Record idempotent sales and automatic stock deductions.' },
-                    { title: 'Procurement', desc: 'Create POs, share with linked suppliers, and post goods receipts.' },
-                  ]
+                  { title: 'Inventory & Ledger', desc: 'Track on-hand, incoming PO stock, and auditable movements.' },
+                  { title: 'Sales & POS', desc: 'Record idempotent sales and automatic stock deductions.' },
+                  { title: 'Procurement', desc: 'Create POs, share with linked suppliers, and post goods receipts.' },
+                ]
               ).map((card) => (
                 <div
                   key={card.title}

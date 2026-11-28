@@ -7,6 +7,7 @@ import suppliersReducer from './suppliersSlice.js'
 import purchaseOrdersReducer from './purchaseOrdersSlice.js'
 import inventoryReducer from './inventorySlice.js'
 import dashboardReducer from './dashboardSlice.js'
+import aiReducer from './aiSlice.js'
 
 const appReducer = combineReducers({
   ui: uiReducer,
@@ -17,6 +18,7 @@ const appReducer = combineReducers({
   purchaseOrders: purchaseOrdersReducer,
   inventory: inventoryReducer,
   dashboard: dashboardReducer,
+  ai: aiReducer,
 })
 
 const rootReducer = (state, action) => {

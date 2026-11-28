@@ -12,10 +12,12 @@ import DataTable from '../components/common/DataTable'
 import CsvExportButton from '../components/common/CsvExportButton'
 import Badge from '../components/Badge'
 import { ErrorState } from '../components/common/StateBlocks'
+import { useTranslation } from '../hooks/useTranslation'
 
 export default function StockManagementPage() {
   const navigate = useNavigate()
   const dispatch = useDispatch()
+  const { t } = useTranslation()
   const positions = useSelector(selectInventoryPositions)
   const loading = useSelector(selectInventoryPositionsLoading)
   const error = useSelector((state) => state.inventory.error)
@@ -174,7 +176,8 @@ export default function StockManagementPage() {
           type="text"
           className="form-control"
           style={{ flex: '1 1 240px', maxWidth: '360px' }}
-          placeholder="Search SKU or product name..."
+          placeholder={t('placeholders.searchStock', 'Search inventory by SKU or product name...')}
+          aria-label="Search stock positions"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />

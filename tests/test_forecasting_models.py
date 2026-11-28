@@ -27,14 +27,14 @@ def synthetic_series():
 ])
 def test_forecasting_models_lifecycle(model_cls, kwargs, synthetic_series):
     model: BaseForecastingModel = model_cls(**kwargs)
-    assert model.is_fitted is False
+    assert not model.is_fitted
 
     # Train
     train_df = synthetic_series.iloc[:-14].copy()
     test_df = synthetic_series.iloc[-14:].copy()
 
     model.fit(train_df, target_col="demand")
-    assert model.is_fitted is True
+    assert model.is_fitted
     assert model.training_time_seconds >= 0
 
     # Predict 14 days out-of-sample

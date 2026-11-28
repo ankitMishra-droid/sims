@@ -10,16 +10,23 @@ from .database import engine
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 
+def _escape_configparser_value(value: str) -> str:
+    """Escape '%' so ConfigParser interpolation does not reject percent-encoded URLs."""
+    return value.replace("%", "%%")
+
+
 def _alembic_config(url: str) -> Config:
     cfg = Config(str(BACKEND_DIR / "alembic.ini"))
-    cfg.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
-    cfg.set_main_option("sqlalchemy.url", url)
+    cfg.set_main_option("script_location", _escape_configparser_value(str(BACKEND_DIR / "migrations")))
+    cfg.set_main_option("sqlalchemy.url", _escape_configparser_value(url))
     return cfg
 
 
 def run_alembic_migrations(target_engine: Engine = engine) -> None:
     """Apply Alembic schema revisions against target_engine safely on SQLite and PostgreSQL."""
-    from . import models  # noqa: F401 - register SQLAlchemy metadata
+    from . import models  # Register SQLAlchemy metadata.
+
+    _ = models.__all__  # Keep the side-effect import explicit to static analyzers.
 
     url = target_engine.url.render_as_string(hide_password=False)
     cfg = _alembic_config(url)
@@ -207,5 +214,22 @@ def backfill_legacy_defaults(target_engine: Engine = engine) -> None:
 
 def ensure_schema_and_backfill(target_engine: Engine = engine) -> None:
     """Run controlled Alembic schema migrations followed by idempotent legacy data backfill."""
+    if target_engine.dialect.name == "postgresql":
+        lock_id = 71092026
+        with target_engine.connect() as lock_conn:
+            lock_conn.execute(text("SELECT pg_advisory_lock(:lock_id)"), {"lock_id": lock_id})
+            try:
+                run_alembic_migrations(target_engine)
+                backfill_legacy_defaults(target_engine)
+            finally:
+                lock_conn.execute(text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": lock_id})
+                if lock_conn.in_transaction():
+                    lock_conn.commit()
+        return
+
     run_alembic_migrations(target_engine)
     backfill_legacy_defaults(target_engine)
+
+
+if __name__ == "__main__":
+    ensure_schema_and_backfill(engine)

@@ -48,7 +48,7 @@ def invite_workspace_member(
         business_id=ctx.business_id,
         actor_role=ctx.role,
         invited_by=ctx.user.id,
-        email=str(payload.email),
+        email=payload.email,
         role=payload.role,
     )
 

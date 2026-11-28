@@ -1,0 +1,16 @@
+{
+  "business_id": 2,
+  "product_id": 85,
+  "horizon_days": 30,
+  "model_version": "ml-v2",
+  "dataset_version": "41b0b195a9e69884",
+  "champion_model": "SeasonalNaive7D",
+  "champion_display_name": "Seasonal Naive Baseline",
+  "previous_champion_model": null,
+  "hierarchical_level": "LEVEL_1_TENANT_PRODUCT",
+  "training_start_date": "2026-11-08",
+  "training_end_date": "2026-11-24",
+  "backtest_start_date": "2026-11-25",
+  "backtest_end_date": "2026-11-28",
+  "expected_total_demand": 60.04
+}

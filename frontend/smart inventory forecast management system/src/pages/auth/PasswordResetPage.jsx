@@ -178,7 +178,7 @@ export default function PasswordResetPage() {
                     className="form-control"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="name@company.com"
+                    placeholder={t('placeholders.workEmail', 'e.g. name@company.com')}
                   />
                 </div>
               </div>
@@ -214,10 +214,12 @@ export default function PasswordResetPage() {
                     required
                     minLength={6}
                     className="form-control"
+                    placeholder={t('placeholders.newPassword', 'Minimum 6 characters')}
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                   />
                 </div>
+                <span className="form-hint">{t('placeholders.newPassword', 'Minimum 6 characters')}</span>
               </div>
               <div className="form-group">
                 <label htmlFor="reset-confirm-pw" className="form-label">
@@ -229,6 +231,7 @@ export default function PasswordResetPage() {
                   required
                   minLength={6}
                   className="form-control"
+                  placeholder={t('placeholders.confirmPassword', 'Re-enter new password')}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                 />

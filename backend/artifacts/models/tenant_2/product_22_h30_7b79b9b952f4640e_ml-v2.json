@@ -1,0 +1,16 @@
+{
+  "business_id": 2,
+  "product_id": 22,
+  "horizon_days": 30,
+  "model_version": "ml-v2",
+  "dataset_version": "7b79b9b952f4640e",
+  "champion_model": "LSTMSequenceNetwork",
+  "champion_display_name": "LSTM",
+  "previous_champion_model": "ColdStartEstimator",
+  "hierarchical_level": "LEVEL_1_TENANT_PRODUCT",
+  "training_start_date": "2016-11-28",
+  "training_end_date": "2026-11-14",
+  "backtest_start_date": "2026-10-18",
+  "backtest_end_date": "2026-11-28",
+  "expected_total_demand": 71.37
+}

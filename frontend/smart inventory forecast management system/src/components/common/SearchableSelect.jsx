@@ -22,7 +22,9 @@ export default function SearchableSelect({
   const [searchQuery, setSearchQuery] = useState('')
   const [highlightedIndex, setHighlightedIndex] = useState(0)
 
+  const searchBoxId = `${id || 'searchable-select'}-listbox`
   const containerRef = useRef(null)
+  const triggerRef = useRef(null)
   const searchInputRef = useRef(null)
   const listRef = useRef(null)
 
@@ -106,7 +108,9 @@ export default function SearchableSelect({
 
     if (e.key === 'Escape') {
       e.preventDefault()
+      e.stopPropagation()
       setIsOpen(false)
+      triggerRef.current?.focus()
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
       setHighlightedIndex((prev) =>
@@ -129,6 +133,7 @@ export default function SearchableSelect({
     onChange?.(option ? option.value : '', option)
     setIsOpen(false)
     setSearchQuery('')
+    triggerRef.current?.focus()
   }
 
   const handleClear = (e) => {
@@ -150,6 +155,7 @@ export default function SearchableSelect({
           value={value || ''}
           required={required}
           onChange={() => {}}
+          aria-hidden="true"
           style={{
             position: 'absolute',
             opacity: 0,
@@ -165,7 +171,12 @@ export default function SearchableSelect({
 
       {/* Trigger Button / Form Control Box */}
       <div
+        ref={triggerRef}
         id={id}
+        role="combobox"
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        aria-controls={searchBoxId}
         tabIndex={disabled ? -1 : 0}
         onClick={() => !disabled && setIsOpen(!isOpen)}
         style={{
@@ -316,6 +327,8 @@ export default function SearchableSelect({
           {/* Options List */}
           <div
             ref={listRef}
+            id={searchBoxId}
+            role="listbox"
             style={{
               maxHeight: '220px',
               overflowY: 'auto',
@@ -331,7 +344,7 @@ export default function SearchableSelect({
                   color: 'var(--erp-text-muted)',
                 }}
               >
-                No matches found for "{searchQuery}"
+                No matches found for &quot;{searchQuery}&quot;
               </div>
             ) : (
               filteredOptions.map((opt, idx) => {
@@ -341,6 +354,8 @@ export default function SearchableSelect({
                 return (
                   <div
                     key={opt.value ?? idx}
+                    role="option"
+                    aria-selected={isSelected}
                     onClick={() => handleSelect(opt)}
                     onMouseEnter={() => setHighlightedIndex(idx)}
                     style={{

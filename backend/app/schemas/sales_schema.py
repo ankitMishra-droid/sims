@@ -26,6 +26,8 @@ class SaleOut(BaseModel):
     revenue: float
     status: str = "COMPLETED"
     created_by: int | None = None
+    is_synthetic: bool = False
+    notes: str | None = None
 
 
 class SaleResponse(BaseModel):

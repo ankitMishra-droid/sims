@@ -11,10 +11,12 @@ import CsvExportButton from '../components/common/CsvExportButton'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'
 import { ErrorState, ConfirmDialog } from '../components/common/StateBlocks'
+import { useTranslation } from '../hooks/useTranslation'
 
 export default function SalesHistoryPage() {
   const navigate = useNavigate()
   const dispatch = useDispatch()
+  const { t } = useTranslation()
   const products = useSelector(selectAllProducts)
 
   const [sales, setSales] = useState([])
@@ -114,7 +116,20 @@ export default function SalesHistoryPage() {
         label: 'Product',
         render: (s) => {
           const p = productsMap[s.product_id]
-          return p ? `${p.name} (${p.sku})` : `Product #${s.product_id}`
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+              <span>{p ? `${p.name} (${p.sku})` : `Product #${s.product_id}`}</span>
+              {(s.is_synthetic || p?.is_synthetic) && (
+                <span
+                  className="badge badge-draft"
+                  title="Historical synthetic demo record"
+                  style={{ fontSize: '0.68rem', padding: '0.1rem 0.4rem' }}
+                >
+                  Synthetic Demo
+                </span>
+              )}
+            </div>
+          )
         },
       },
       {
@@ -197,7 +212,8 @@ export default function SalesHistoryPage() {
           type="text"
           className="form-control"
           style={{ flex: '1 1 220px', maxWidth: '320px' }}
-          placeholder="Search Sale ID, product, or SKU..."
+          placeholder={t('placeholders.searchSales', 'Search Sale ID, product name, or SKU...')}
+          aria-label="Search sales history"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />

@@ -52,7 +52,7 @@ class InventoryService:
             query = query.filter(models.PurchaseOrderItem.product_id.in_(product_ids))
 
         rows = query.group_by(models.PurchaseOrderItem.product_id).all()
-        return {pid: max(0, int(qty or 0)) for pid, qty in rows}
+        return {pid: max(0, qty or 0) for pid, qty in rows}
 
     @classmethod
     def get_inventory_positions(
@@ -77,7 +77,7 @@ class InventoryService:
         )
         results = []
         for p in products:
-            on_hand = int(p.current_stock or 0)
+            on_hand = p.current_stock or 0
             incoming = incoming_map.get(p.id, 0)
             reserved = 0  # Reservations not yet implemented
             available = on_hand - reserved
@@ -93,7 +93,7 @@ class InventoryService:
                     "reserved_stock": reserved,
                     "available_stock": available,
                     "inventory_position": inv_pos,
-                    "reorder_level": int(p.reorder_level or 0),
+                    "reorder_level": p.reorder_level or 0,
                     "unit_cost": round(unit_cost, 2),
                     "inventory_value": round(on_hand * unit_cost, 2),
                     "reservations_supported": False,
@@ -131,10 +131,10 @@ class InventoryService:
         except HTTPException:
             db.rollback()
             raise
-        except Exception as exc:
+        except Exception:
             db.rollback()
             logger.exception("Failed stock_in product_id=%s", payload.product_id)
-            raise HTTPException(status_code=500, detail=f"Failed to add stock: {exc}")
+            raise HTTPException(status_code=500, detail="Failed to add stock.")
 
     @classmethod
     def adjust_stock(
@@ -181,10 +181,10 @@ class InventoryService:
         except HTTPException:
             db.rollback()
             raise
-        except Exception as exc:
+        except Exception:
             db.rollback()
             logger.exception("Failed adjust_stock product_id=%s", payload.product_id)
-            raise HTTPException(status_code=500, detail=f"Failed to adjust stock: {exc}")
+            raise HTTPException(status_code=500, detail="Failed to adjust stock.")
 
     @staticmethod
     def get_logs(

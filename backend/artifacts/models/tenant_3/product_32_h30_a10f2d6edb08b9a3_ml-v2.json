@@ -1,0 +1,16 @@
+{
+  "business_id": 3,
+  "product_id": 32,
+  "horizon_days": 30,
+  "model_version": "ml-v2",
+  "dataset_version": "a10f2d6edb08b9a3",
+  "champion_model": "RandomForest",
+  "champion_display_name": "Random Forest",
+  "previous_champion_model": "ColdStartEstimator",
+  "hierarchical_level": "LEVEL_1_TENANT_PRODUCT",
+  "training_start_date": "2021-11-29",
+  "training_end_date": "2026-11-14",
+  "backtest_start_date": "2026-10-18",
+  "backtest_end_date": "2026-11-28",
+  "expected_total_demand": 312.47
+}

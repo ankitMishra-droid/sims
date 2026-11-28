@@ -12,10 +12,12 @@ import { getChartTheme } from '../components/charts/ChartSetup' // Ensure scales
 import { api } from '../api'
 import { fetchProducts, selectAllProducts } from '../store/productsSlice'
 import { addToast } from '../store/uiSlice'
+import { useTranslation } from '../hooks/useTranslation'
 import PageHeader from '../components/common/PageHeader'
 
 export default function WhatIfSimulatorPage() {
   const dispatch = useDispatch()
+  const { t } = useTranslation()
   const rawProducts = useSelector(selectAllProducts)
   const theme = useSelector((state) => state.ui.theme)
   const chartColors = getChartTheme(theme === 'dark')
@@ -46,11 +48,11 @@ export default function WhatIfSimulatorPage() {
       const payload = {
         product_id: parseInt(targetId, 10),
         simulation_horizon_days: 60,
-        demand_multiplier: parseFloat(demandMultiplier),
-        lead_time_delay_days: parseInt(leadTimeDelay, 10),
-        service_level: parseFloat(serviceLevel),
-        planned_restock_qty: parseInt(plannedRestockQty, 10),
-        restock_day: parseInt(restockDay, 10),
+        demand_multiplier: parseFloat(demandMultiplier) || 1,
+        lead_time_delay_days: parseInt(leadTimeDelay, 10) || 0,
+        service_level: parseFloat(serviceLevel) || 0.95,
+        planned_restock_qty: Number.isFinite(parseInt(plannedRestockQty, 10)) ? Math.max(0, parseInt(plannedRestockQty, 10)) : 0,
+        restock_day: Number.isFinite(parseInt(restockDay, 10)) ? Math.max(1, parseInt(restockDay, 10)) : 1,
       }
       const data = await api.runWhatIfSimulation(payload)
       setSimulationResult(data)
@@ -71,11 +73,11 @@ export default function WhatIfSimulatorPage() {
         const payload = {
           product_id: parseInt(activeProductId, 10),
           simulation_horizon_days: 60,
-          demand_multiplier: parseFloat(demandMultiplier),
-          lead_time_delay_days: parseInt(leadTimeDelay, 10),
-          service_level: parseFloat(serviceLevel),
-          planned_restock_qty: parseInt(plannedRestockQty, 10),
-          restock_day: parseInt(restockDay, 10),
+          demand_multiplier: parseFloat(demandMultiplier) || 1,
+          lead_time_delay_days: parseInt(leadTimeDelay, 10) || 0,
+          service_level: parseFloat(serviceLevel) || 0.95,
+          planned_restock_qty: Number.isFinite(parseInt(plannedRestockQty, 10)) ? Math.max(0, parseInt(plannedRestockQty, 10)) : 0,
+          restock_day: Number.isFinite(parseInt(restockDay, 10)) ? Math.max(1, parseInt(restockDay, 10)) : 1,
         }
         const data = await api.runWhatIfSimulation(payload)
         if (active) setSimulationResult(data)
@@ -259,7 +261,8 @@ export default function WhatIfSimulatorPage() {
                   className="form-control"
                   value={plannedRestockQty}
                   onChange={(e) => setPlannedRestockQty(e.target.value)}
-                  placeholder="Quantity"
+                  placeholder={t('placeholders.simRestockQty', 'e.g. 100 units')}
+                  aria-label="Planned restock quantity"
                   style={{ flex: 1 }}
                 />
                 <input
@@ -269,8 +272,9 @@ export default function WhatIfSimulatorPage() {
                   className="form-control"
                   value={restockDay}
                   onChange={(e) => setRestockDay(e.target.value)}
-                  placeholder="Day"
-                  style={{ width: '100px' }}
+                  placeholder={t('placeholders.simRestockDay', 'e.g. Day 7')}
+                  aria-label="Expected restock arrival day"
+                  style={{ width: '120px' }}
                 />
               </div>
             </div>

@@ -96,7 +96,7 @@ def require_business_types(allowed_types: List[str]) -> Callable:
     allowed_norm = {t.lower() for t in allowed_types}
 
     def checker(ctx: BusinessContext = Depends(get_business_context)) -> BusinessContext:
-        btype = str(ctx.business.business_type or "").lower()
+        btype = (ctx.business.business_type or "").lower()
         if btype not in allowed_norm:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

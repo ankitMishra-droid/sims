@@ -7,7 +7,23 @@ export default function LandingPage() {
   const { isAuthenticated, workspacesLoaded, currentWorkspace } = useSelector((state) => state.auth)
 
   if (isAuthenticated) {
-    if (!workspacesLoaded || !currentWorkspace?.business?.id) {
+    if (!workspacesLoaded) {
+      return (
+        <div
+          style={{
+            minHeight: '100vh',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--erp-text-muted)',
+            backgroundColor: 'var(--erp-bg)',
+          }}
+        >
+          Loading workspace session...
+        </div>
+      )
+    }
+    if (!currentWorkspace?.business?.id) {
       return <Navigate to="/workspaces" replace />
     }
     if (!currentWorkspace.business.onboarding_completed) {

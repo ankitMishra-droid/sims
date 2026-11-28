@@ -58,6 +58,7 @@ class GoodsReceiptOut(BaseModel):
     received_by: int | None = None
     notes: str | None = None
     received_at: datetime
+    is_synthetic: bool = False
     items: list[GoodsReceiptItemOut] = []
 
     model_config = ConfigDict(from_attributes=True)
@@ -83,6 +84,7 @@ class PurchaseOrderOut(BaseModel):
     supplier_notes: str | None = None
     supplier_acknowledged_at: datetime | None = None
     supplier_dispatched_at: datetime | None = None
+    is_synthetic: bool = False
     items: list[PurchaseOrderItemOut]
 
     model_config = ConfigDict(from_attributes=True)

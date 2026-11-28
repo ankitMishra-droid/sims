@@ -16,13 +16,15 @@ class ProphetForecaster(BaseForecastingModel):
     def __init__(self):
         super().__init__(model_name="AdditiveProphet")
         self.regressor_ = Ridge(alpha=1.0)
-        self.start_date_ = None
-        self.residual_std_ = 1.0
+        self.start_date_: Optional[pd.Timestamp] = None
+        self.residual_std_: float = 1.0
 
     def _extract_fourier_features(self, dates: pd.Series) -> pd.DataFrame:
-        t = (dates - self.start_date_).dt.days.values
-        dow = dates.dt.day_of_week.values
-        month = dates.dt.month.values
+        if self.start_date_ is None:
+            raise RuntimeError("ProphetForecaster start_date_ must be initialized before feature extraction.")
+        t = np.asarray((dates - self.start_date_).dt.days.to_numpy(dtype=np.float64), dtype=np.float64)
+        dow = np.asarray(dates.dt.day_of_week.to_numpy(dtype=np.float64), dtype=np.float64)
+        month = np.asarray(dates.dt.month.to_numpy(dtype=np.float64), dtype=np.float64)
 
         features = pd.DataFrame({
             "trend": t,
@@ -42,11 +44,11 @@ class ProphetForecaster(BaseForecastingModel):
     def fit(self, train_df: pd.DataFrame, target_col: str = "demand") -> None:
         t0 = time.time()
         df = train_df.sort_values("date").copy()
-        self.start_date_ = df["date"].min()
-        self.last_date = df["date"].max()
+        self.start_date_ = pd.Timestamp(df["date"].min())
+        self.last_date = pd.Timestamp(df["date"].max())
 
         X = self._extract_fourier_features(df["date"])
-        y = df[target_col].values
+        y = np.asarray(pd.to_numeric(df[target_col], errors="coerce").fillna(0.0).to_numpy(dtype=np.float64), dtype=np.float64)
 
         self.regressor_.fit(X, y)
         preds = self.regressor_.predict(X)
@@ -57,11 +59,12 @@ class ProphetForecaster(BaseForecastingModel):
         self.training_time_seconds = round(time.time() - t0, 3)
 
     def predict(self, horizon_days: int = 30) -> Dict[str, Any]:
-        if not self.is_fitted:
+        if not self.is_fitted or self.last_date is None:
             raise RuntimeError("ProphetForecaster must be fitted before predict.")
 
+        last_dt = self.last_date
         future_dates = [
-            self.last_date + pd.Timedelta(days=i + 1)
+            last_dt + pd.Timedelta(days=i + 1)
             for i in range(horizon_days)
         ]
         future_series = pd.Series(future_dates)

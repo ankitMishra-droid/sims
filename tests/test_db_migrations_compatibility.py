@@ -16,15 +16,28 @@ from app.database import (
     get_engine_kwargs,
     normalize_database_url,
 )
-from app.db_migrate import BACKEND_DIR, backfill_legacy_defaults, ensure_schema_and_backfill
+from app.db_migrate import BACKEND_DIR, _alembic_config, backfill_legacy_defaults, ensure_schema_and_backfill
 from app.main import app
 
 
 def _alembic_cfg_for(url: str) -> Config:
-    cfg = Config(str(BACKEND_DIR / "alembic.ini"))
-    cfg.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
-    cfg.set_main_option("sqlalchemy.url", url)
-    return cfg
+    return _alembic_config(url)
+
+
+def test_alembic_config_handles_percent_encoded_urls():
+    urls = [
+        "sqlite:///D%3A/sims/backend/inventory.db",
+        "sqlite:////var/lib/sims/inventory.db",
+        "postgresql+psycopg2://postgres.ref:p%40ss%23w0rd%251@aws-0-ap-south-1.pooler.supabase.com:5432/postgres?sslmode=require",
+    ]
+    for original_url in urls:
+        cfg = _alembic_config(original_url)
+        assert cfg.get_main_option("sqlalchemy.url") == original_url
+        script_loc = cfg.get_main_option("script_location")
+        assert script_loc is not None
+        assert Path(script_loc) == BACKEND_DIR / "migrations"
+        assert (BACKEND_DIR / "alembic.ini").is_file()
+        assert (BACKEND_DIR / "migrations" / "env.py").is_file()
 
 
 def test_database_url_normalization_and_ssl_defaults(monkeypatch):
@@ -74,6 +87,10 @@ def test_sqlite_fresh_migration_idempotency_and_downgrade(tmp_path):
             "goods_receipts",
             "goods_receipt_items",
             "purchase_order_supplier_actions",
+            "stock_alert_states",
+            "product_forecasts",
+            "model_evaluations",
+            "replenishment_recommendations",
         }
         assert expected.issubset(tables)
 
@@ -155,15 +172,18 @@ def test_sqlite_legacy_schema_upgrade_and_backfill_preserves_data(tmp_path):
 
         with legacy_engine.connect() as conn:
             prod = conn.execute(text("SELECT business_id, sku FROM products WHERE id = 1")).fetchone()
+            assert prod is not None
             assert prod[0] == 1
             assert prod[1] == "LEG-1"
 
             po = conn.execute(text("SELECT order_number, total_amount, shared_with_supplier FROM purchase_orders WHERE id = 1")).fetchone()
+            assert po is not None
             assert po[0] == "PO-0001"
             assert float(po[1]) == 255.0
             assert bool(po[2]) is False
 
             log_row = conn.execute(text("SELECT movement_type, previous_stock FROM inventory_logs WHERE id = 1")).fetchone()
+            assert log_row is not None
             assert log_row[0] == "OPENING_STOCK"
             assert log_row[1] == 0
 
@@ -210,6 +230,9 @@ def test_postgresql_full_migration_constraints_backfill_and_api_isolation():
         insp = inspect(pg_engine)
         assert "alembic_version" in insp.get_table_names()
         assert "purchase_orders" in insp.get_table_names()
+        assert "product_forecasts" in insp.get_table_names()
+        assert "model_evaluations" in insp.get_table_names()
+        assert "replenishment_recommendations" in insp.get_table_names()
 
         # Verify PostgreSQL column types (TIMESTAMPTZ/TIMESTAMP, BOOLEAN, NUMERIC)
         sup_cols = {c["name"]: c for c in insp.get_columns("suppliers")}
@@ -315,19 +338,116 @@ def test_postgresql_full_migration_constraints_backfill_and_api_isolation():
             assert sale.status_code == 200, sale.text
             assert client.get(f"/api/products/{a_id}", headers=hdr_a).json()["data"]["current_stock"] == 12
 
-        # 4. Also test backfill_legacy_defaults directly on PostgreSQL (including GREATEST/CASE previous_stock & bool backfill)
+            # Phase 6 Intelligence end-to-end on real PostgreSQL (persisted forecast + recommendations)
+            intel_ov = client.get("/api/intelligence/overview", headers=hdr_a)
+            assert intel_ov.status_code == 200, intel_ov.text
+            assert intel_ov.json()["data"]["total_active_products"] == 1
+            intel_f = client.get(f"/api/intelligence/forecasts/{a_id}", headers=hdr_a)
+            assert intel_f.status_code == 200, intel_f.text
+            assert client.get(f"/api/intelligence/forecasts/{a_id}", headers=hdr_b).status_code == 404
+
+        # 4. Also test backfill_legacy_defaults directly on PostgreSQL for order_number & total_amount
         with pg_engine.begin() as conn:
-            conn.execute(text("UPDATE purchase_orders SET order_number = NULL, total_amount = 0, shared_with_supplier = NULL"))
-            conn.execute(text("UPDATE inventory_logs SET previous_stock = NULL, movement_type = NULL"))
+            conn.execute(text("UPDATE purchase_orders SET order_number = NULL, total_amount = 0"))
         backfill_legacy_defaults(pg_engine)
         with pg_engine.connect() as conn:
             po_row = conn.execute(text("SELECT order_number, total_amount, shared_with_supplier FROM purchase_orders WHERE id = :id"), {"id": po_id}).fetchone()
+            assert po_row is not None
             assert po_row[0] == f"PO-{po_id:04d}"
             assert float(po_row[1]) == 62.5
             assert po_row[2] is False
             log_prev = conn.execute(text("SELECT previous_stock, movement_type FROM inventory_logs ORDER BY id ASC LIMIT 1")).fetchone()
+            assert log_prev is not None
             assert log_prev[0] >= 0
             assert log_prev[1] in {"OPENING_STOCK", "PURCHASE_RECEIPT", "SALE", "STOCK_ADJUSTMENT"}
     finally:
         app.dependency_overrides.clear()
+        pg_engine.dispose()
+
+
+@pytest.mark.skipif(_postgres_test_url() is None, reason="TEST_POSTGRES_URL not set")
+def test_postgresql_legacy_schema_upgrade_and_backfill():
+    """Upgrade a pre-existing PostgreSQL schema (legacy types/unique SKU) via Alembic + backfill cleanly."""
+    pg_url = _postgres_test_url()
+    assert pg_url is not None
+    pg_engine = create_engine(pg_url, **get_engine_kwargs(pg_url))
+    try:
+        with pg_engine.connect() as conn:
+            conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;"))
+            conn.execute(text(
+                "CREATE TABLE users (id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL, "
+                "email VARCHAR(120) NOT NULL UNIQUE, password_hash VARCHAR(255) NOT NULL, "
+                "role VARCHAR(30) NOT NULL DEFAULT 'staff', is_active BOOLEAN NOT NULL DEFAULT TRUE, "
+                "created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"
+            ))
+            conn.execute(text(
+                "CREATE TABLE suppliers (id SERIAL PRIMARY KEY, name VARCHAR(150) NOT NULL, "
+                "contact_person VARCHAR(100), email VARCHAR(255), phone VARCHAR(30), "
+                "address VARCHAR(255), lead_time_days INTEGER NOT NULL DEFAULT 7, "
+                "is_active BOOLEAN NOT NULL DEFAULT TRUE)"
+            ))
+            conn.execute(text(
+                "CREATE TABLE products (id SERIAL PRIMARY KEY, sku VARCHAR NOT NULL, name VARCHAR NOT NULL, "
+                "category VARCHAR NOT NULL DEFAULT 'General', unit VARCHAR NOT NULL DEFAULT 'piece', "
+                "cost_price DOUBLE PRECISION NOT NULL DEFAULT 0, selling_price DOUBLE PRECISION NOT NULL DEFAULT 0, "
+                "current_stock INTEGER NOT NULL DEFAULT 0, reorder_level INTEGER NOT NULL DEFAULT 10, "
+                "supplier_id INTEGER, is_active BOOLEAN NOT NULL DEFAULT TRUE)"
+            ))
+            conn.execute(text("CREATE UNIQUE INDEX ix_products_sku ON products (sku)"))
+            conn.execute(text(
+                "CREATE TABLE sales (id SERIAL PRIMARY KEY, product_id INTEGER NOT NULL, "
+                "sales_date TIMESTAMP DEFAULT NOW(), quantity_sold INTEGER NOT NULL, "
+                "selling_price DOUBLE PRECISION NOT NULL, revenue DOUBLE PRECISION NOT NULL)"
+            ))
+            conn.execute(text(
+                "CREATE TABLE inventory_logs (id SERIAL PRIMARY KEY, product_id INTEGER NOT NULL, "
+                "timestamp TIMESTAMP DEFAULT NOW(), stock_in INTEGER NOT NULL DEFAULT 0, "
+                "stock_out INTEGER NOT NULL DEFAULT 0, closing_stock INTEGER NOT NULL, reason VARCHAR NOT NULL)"
+            ))
+            conn.execute(text(
+                "CREATE TABLE purchase_orders (id SERIAL PRIMARY KEY, supplier_id INTEGER NOT NULL, "
+                "status VARCHAR(20) NOT NULL DEFAULT 'DRAFT', order_date TIMESTAMP NOT NULL DEFAULT NOW(), "
+                "expected_delivery_date TIMESTAMP, notes TEXT)"
+            ))
+            conn.execute(text(
+                "CREATE TABLE purchase_order_items (id SERIAL PRIMARY KEY, purchase_order_id INTEGER NOT NULL, "
+                "product_id INTEGER NOT NULL, ordered_quantity INTEGER NOT NULL, "
+                "received_quantity INTEGER NOT NULL DEFAULT 0, unit_cost NUMERIC(12, 2) NOT NULL)"
+            ))
+
+            conn.execute(
+                text("INSERT INTO users (id, name, email, password_hash, role) VALUES (1, 'PG Owner', 'pgowner@legacy.in', :pw, 'admin')"),
+                {"pw": hash_password("Secret123!")},
+            )
+            conn.execute(text("INSERT INTO suppliers (id, name) VALUES (1, 'Legacy PG Vendor')"))
+            conn.execute(text("INSERT INTO products (id, sku, name, current_stock, supplier_id) VALUES (1, 'PG-LEG-1', 'Legacy PG Item', 20, 1)"))
+            conn.execute(text("INSERT INTO inventory_logs (id, product_id, stock_in, stock_out, closing_stock, reason) VALUES (1, 1, 20, 0, 20, 'initial_stock')"))
+            conn.execute(text("INSERT INTO purchase_orders (id, supplier_id, status) VALUES (1, 1, 'DRAFT')"))
+            conn.execute(text("INSERT INTO purchase_order_items (id, purchase_order_id, product_id, ordered_quantity, received_quantity, unit_cost) VALUES (1, 1, 1, 8, 0, 12.50)"))
+            conn.execute(text("SELECT setval(pg_get_serial_sequence('users', 'id'), 1);"))
+            conn.execute(text("SELECT setval(pg_get_serial_sequence('suppliers', 'id'), 1);"))
+            conn.execute(text("SELECT setval(pg_get_serial_sequence('products', 'id'), 1);"))
+            conn.execute(text("SELECT setval(pg_get_serial_sequence('inventory_logs', 'id'), 1);"))
+            conn.execute(text("SELECT setval(pg_get_serial_sequence('purchase_orders', 'id'), 1);"))
+            conn.commit()
+
+        # Run full Alembic upgrade + backfill twice (idempotency check)
+        ensure_schema_and_backfill(pg_engine)
+        ensure_schema_and_backfill(pg_engine)
+
+        insp = inspect(pg_engine)
+        prod_uqs = {uc.get("name") for uc in insp.get_unique_constraints("products")}
+        prod_uqs.update(idx.get("name") for idx in insp.get_indexes("products") if idx.get("unique"))
+        assert "uq_product_business_sku" in prod_uqs
+        sku_indexes = [idx for idx in insp.get_indexes("products") if idx.get("name") == "ix_products_sku"]
+        assert sku_indexes and not sku_indexes[0].get("unique")
+
+        with pg_engine.connect() as conn:
+            prod = conn.execute(text("SELECT business_id, sku, created_at FROM products WHERE id = 1")).fetchone()
+            assert prod is not None and prod[0] == 1 and prod[1] == "PG-LEG-1"
+            po = conn.execute(text("SELECT order_number, total_amount, shared_with_supplier FROM purchase_orders WHERE id = 1")).fetchone()
+            assert po is not None and po[0] == "PO-0001" and float(po[1]) == 100.0 and po[2] is False
+            log_row = conn.execute(text("SELECT movement_type, previous_stock FROM inventory_logs WHERE id = 1")).fetchone()
+            assert log_row is not None and log_row[0] == "OPENING_STOCK" and log_row[1] == 0
+    finally:
         pg_engine.dispose()

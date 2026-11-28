@@ -1,0 +1,16 @@
+{
+  "business_id": 3,
+  "product_id": 8,
+  "horizon_days": 14,
+  "model_version": "ml-v2",
+  "dataset_version": "8f45c23e451076b8",
+  "champion_model": "MovingAverage(14d)",
+  "champion_display_name": "Moving Average Baseline",
+  "previous_champion_model": null,
+  "hierarchical_level": "LEVEL_1_TENANT_PRODUCT",
+  "training_start_date": "2026-11-08",
+  "training_end_date": "2026-11-24",
+  "backtest_start_date": "2026-11-17",
+  "backtest_end_date": "2026-11-28",
+  "expected_total_demand": 30.94
+}

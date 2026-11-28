@@ -1,7 +1,8 @@
 from enum import Enum
-from typing import Optional, Tuple
+from typing import Optional, Tuple, cast
 from fastapi import HTTPException
 from sqlalchemy import update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from .. import models
@@ -60,17 +61,17 @@ def apply_stock_movement(
         stmt = stmt.where(models.Product.current_stock >= abs(delta))
 
     stmt = stmt.values(current_stock=models.Product.current_stock + delta)
-    res = db.execute(stmt)
+    res = cast(CursorResult, db.execute(stmt))
 
     if res.rowcount == 0:
         raise HTTPException(status_code=400, detail="Insufficient stock")
 
     db.expire(product)
     updated_product = get_product_or_404(db, product_id, business_id=effective_business_id)
-    closing_stock = int(updated_product.current_stock)
+    closing_stock = updated_product.current_stock
     previous_stock = closing_stock - delta
 
-    mtype = movement_type.value if isinstance(movement_type, MovementType) else str(movement_type)
+    mtype = movement_type.value if isinstance(movement_type, MovementType) else movement_type
     log = models.InventoryLog(
         business_id=effective_business_id,
         product_id=product_id,
@@ -102,10 +103,10 @@ def record_opening_stock(
         business_id=product.business_id,
         product_id=product.id,
         movement_type=MovementType.OPENING_STOCK.value,
-        stock_in=int(product.current_stock),
+        stock_in=product.current_stock,
         stock_out=0,
         previous_stock=0,
-        closing_stock=int(product.current_stock),
+        closing_stock=product.current_stock,
         reference_type="product",
         reference_id=product.id,
         user_id=user_id,

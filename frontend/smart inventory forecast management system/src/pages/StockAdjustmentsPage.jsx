@@ -6,10 +6,14 @@ import { fetchProducts, selectAllProducts } from '../store/productsSlice'
 import { adjustProductStock } from '../store/inventorySlice'
 import PageHeader from '../components/common/PageHeader'
 import SearchableSelect from '../components/common/SearchableSelect'
+import FormField from '../components/common/FormField'
+import { useTranslation } from '../hooks/useTranslation'
+import { parseStrictPositiveInt } from '../utils/formHelpers'
 
 export default function StockAdjustmentsPage() {
   const dispatch = useDispatch()
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const products = useSelector(selectAllProducts)
 
@@ -43,21 +47,24 @@ export default function StockAdjustmentsPage() {
     [products]
   )
 
-  const qtyNum = parseInt(quantity, 10) || 0
+  const qtyNum = parseStrictPositiveInt(quantity) ?? 0
   const delta = direction === 'remove' ? -Math.abs(qtyNum) : Math.abs(qtyNum)
   const projectedStock = selectedProduct ? selectedProduct.current_stock + delta : null
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (submitting) return
     setError('')
     setResult(null)
 
-    if (!activeProductId) {
+    const parsedProductId = parseStrictPositiveInt(activeProductId)
+    if (!parsedProductId) {
       setError('Please select a product.')
       return
     }
-    if (qtyNum <= 0) {
-      setError('Adjustment quantity must be greater than 0.')
+    const parsedQty = parseStrictPositiveInt(quantity)
+    if (parsedQty === null) {
+      setError('Adjustment quantity must be a whole number greater than 0.')
       return
     }
     if (reason.trim().length < 2) {
@@ -65,11 +72,12 @@ export default function StockAdjustmentsPage() {
       return
     }
 
+    const signedDelta = direction === 'remove' ? -parsedQty : parsedQty
     setSubmitting(true)
     const res = await dispatch(
       adjustProductStock({
-        product_id: parseInt(activeProductId, 10),
-        quantity_delta: delta,
+        product_id: parsedProductId,
+        quantity_delta: signedDelta,
         reason: reason.trim(),
         movement_type: movementType,
       })
@@ -152,18 +160,18 @@ export default function StockAdjustmentsPage() {
             </select>
           </div>
 
-          <div className="form-group">
-            <label className="form-label" htmlFor="adj-qty">Quantity</label>
+          <FormField label="Quantity" htmlFor="adj-qty" required>
             <input
               id="adj-qty"
               type="number"
               min="1"
               required
               className="form-control"
+              placeholder={t('placeholders.adjustQuantity', 'e.g. 10')}
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
             />
-          </div>
+          </FormField>
 
           <div className="form-group">
             <label className="form-label" htmlFor="adj-type">Movement Type</label>
@@ -194,20 +202,17 @@ export default function StockAdjustmentsPage() {
           </div>
         </div>
 
-        <div className="form-group">
-          <label className="form-label" htmlFor="adj-reason">
-            Reason <span className="required">*</span>
-          </label>
+        <FormField label="Reason" htmlFor="adj-reason" required hint="Required for stock audit trail">
           <input
             id="adj-reason"
             type="text"
             required
             className="form-control"
-            placeholder="e.g. Physical cycle count variance, damaged in warehouse"
+            placeholder={t('placeholders.adjustReason', 'e.g. Physical cycle count variance or damaged box')}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
           />
-        </div>
+        </FormField>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
           <button type="submit" className="btn btn-primary" disabled={submitting}>

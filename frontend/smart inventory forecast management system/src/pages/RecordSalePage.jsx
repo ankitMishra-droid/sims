@@ -6,6 +6,9 @@ import { fetchProducts, selectAllProducts } from '../store/productsSlice'
 import { recordSale } from '../store/salesSlice'
 import PageHeader from '../components/common/PageHeader'
 import SearchableSelect from '../components/common/SearchableSelect'
+import FormField from '../components/common/FormField'
+import { useTranslation } from '../hooks/useTranslation'
+import { validateAndBuildSalePayload } from '../utils/formHelpers'
 
 function newIdempotencyKey() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -17,6 +20,7 @@ function newIdempotencyKey() {
 export default function RecordSalePage() {
   const dispatch = useDispatch()
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const products = useSelector(selectAllProducts)
 
   const [productId, setProductId] = useState('')
@@ -50,35 +54,33 @@ export default function RecordSalePage() {
     [products]
   )
 
-  const unitPrice = sellingPrice !== '' ? parseFloat(sellingPrice) || 0 : Number(selectedProduct?.selling_price || 0)
-  const qtyNum = parseInt(quantity, 10) || 0
+  const rawSellPrice = sellingPrice.trim()
+  const parsedSellPrice = rawSellPrice !== '' ? Number(rawSellPrice) : Number(selectedProduct?.selling_price || 0)
+  const unitPrice = Number.isFinite(parsedSellPrice) ? parsedSellPrice : 0
+  const qtyNum = /^\d+$/.test(String(quantity).trim()) ? parseInt(quantity, 10) : 0
   const previewTotal = (unitPrice * qtyNum).toFixed(2)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (submitting) return
     setError('')
     setConfirmedSale(null)
 
-    if (!activeProductId) {
-      setError('Please select a product.')
-      return
-    }
-    if (qtyNum <= 0) {
-      setError('Quantity must be greater than 0.')
-      return
-    }
-    if (selectedProduct && qtyNum > selectedProduct.current_stock) {
-      setError(`Only ${selectedProduct.current_stock} ${selectedProduct.unit} available in stock.`)
+    const { error: validationError, payload } = validateAndBuildSalePayload(
+      {
+        productId: activeProductId,
+        quantity,
+        sellingPrice,
+        notes,
+      },
+      { availableStock: selectedProduct?.current_stock ?? null }
+    )
+    if (validationError) {
+      setError(validationError)
       return
     }
 
     setSubmitting(true)
-    const payload = {
-      product_id: parseInt(activeProductId, 10),
-      quantity_sold: qtyNum,
-      selling_price: sellingPrice !== '' ? parseFloat(sellingPrice) : null,
-      notes: notes.trim() || null,
-    }
     const res = await dispatch(recordSale({ payload, idempotencyKey: idemKey }))
     if (recordSale.rejected.match(res)) {
       setError(res.payload || 'Sale failed.')
@@ -148,47 +150,51 @@ export default function RecordSalePage() {
         </div>
 
         <div className="form-grid">
-          <div className="form-group">
-            <label className="form-label" htmlFor="sale-qty">
-              Quantity <span className="required">*</span>
-            </label>
+          <FormField label="Quantity" htmlFor="sale-qty" required>
             <input
               id="sale-qty"
               type="number"
               min="1"
               required
               className="form-control"
+              placeholder={t('placeholders.saleQuantity', 'e.g. 5')}
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
             />
-          </div>
+          </FormField>
 
-          <div className="form-group">
-            <label className="form-label" htmlFor="sale-price">Unit Selling Price (₹)</label>
+          <FormField
+            label="Unit Selling Price (₹)"
+            htmlFor="sale-price"
+            hint="Leave blank to use default product price"
+          >
             <input
               id="sale-price"
               type="number"
               step="0.01"
               min="0"
               className="form-control"
-              placeholder={selectedProduct ? String(selectedProduct.selling_price) : '0.00'}
+              placeholder={
+                selectedProduct
+                  ? `e.g. ${Number(selectedProduct.selling_price || 0).toFixed(2)}`
+                  : t('placeholders.sellingPrice', 'e.g. 60.00')
+              }
               value={sellingPrice}
               onChange={(e) => setSellingPrice(e.target.value)}
             />
-          </div>
+          </FormField>
         </div>
 
-        <div className="form-group">
-          <label className="form-label" htmlFor="sale-notes">Notes (Optional)</label>
+        <FormField label="Notes (Optional)" htmlFor="sale-notes">
           <input
             id="sale-notes"
             type="text"
             className="form-control"
-            placeholder="Invoice reference or customer note..."
+            placeholder={t('placeholders.saleNotes', 'e.g. Counter bill #INV-1042 or customer reference')}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
           />
-        </div>
+        </FormField>
 
         <div
           style={{

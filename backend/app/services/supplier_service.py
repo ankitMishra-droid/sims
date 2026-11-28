@@ -62,7 +62,7 @@ class SupplierService:
         # Check duplicate name within tenant; only check email if email was provided (prevent NULL == NULL)
         filters = [models.Supplier.name == payload.name]
         if payload.email:
-            filters.append(models.Supplier.email == str(payload.email))
+            filters.append(models.Supplier.email == payload.email)
 
         existing = (
             db.query(models.Supplier)
@@ -85,10 +85,10 @@ class SupplierService:
             db.refresh(supplier)
             logger.info("Supplier created id=%s business_id=%s", supplier.id, business_id)
             return supplier
-        except Exception as exc:
+        except Exception:
             db.rollback()
             logger.exception("Failed creating supplier business_id=%s", business_id)
-            raise HTTPException(status_code=500, detail=f"Failed to create supplier: {exc}")
+            raise HTTPException(status_code=500, detail="Failed to create supplier.")
 
     @classmethod
     def update_supplier(
@@ -133,9 +133,10 @@ class SupplierService:
             db.commit()
             db.refresh(supplier)
             return supplier
-        except Exception as exc:
+        except Exception:
             db.rollback()
-            raise HTTPException(status_code=500, detail=f"Failed to update supplier: {exc}")
+            logger.exception("Failed updating supplier id=%s business_id=%s", supplier_id, business_id)
+            raise HTTPException(status_code=500, detail="Failed to update supplier.")
 
     @classmethod
     def set_active_status(
@@ -177,7 +178,7 @@ class SupplierService:
             )
             .first()
         )
-        if not target_biz or str(target_biz.business_type).lower() != "supplier":
+        if not target_biz or target_biz.business_type.lower() != "supplier":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Target workspace must be an active supplier-type business.",

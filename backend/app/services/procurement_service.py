@@ -1,10 +1,12 @@
 import logging
 from datetime import date, datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from decimal import Decimal
+from typing import Dict, List, Optional, Tuple, cast
 from fastapi import HTTPException
 from sqlalchemy import update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from .. import models, schemas
 from . import stock_service
@@ -121,10 +123,10 @@ class ProcurementService:
         except HTTPException:
             db.rollback()
             raise
-        except Exception as exc:
+        except Exception:
             db.rollback()
             logger.exception("Failed creating purchase order business_id=%s", business_id)
-            raise HTTPException(status_code=500, detail=f"Failed to create purchase order: {exc}")
+            raise HTTPException(status_code=500, detail="Failed to create purchase order.")
 
     @staticmethod
     def list_purchase_orders(
@@ -136,7 +138,11 @@ class ProcurementService:
         skip: int = 0,
         limit: int = 200,
     ) -> List[models.PurchaseOrder]:
-        query = db.query(models.PurchaseOrder).filter(models.PurchaseOrder.business_id == business_id)
+        query = (
+            db.query(models.PurchaseOrder)
+            .options(selectinload(models.PurchaseOrder.items))
+            .filter(models.PurchaseOrder.business_id == business_id)
+        )
         if status_filter and status_filter.upper() != "ALL":
             try:
                 status_enum = models.PurchaseOrderStatus(status_filter.upper())
@@ -202,7 +208,7 @@ class ProcurementService:
                             unit_cost=item["unit_cost"],
                         )
                     )
-                order.total_amount = total_amount
+                order.total_amount = Decimal(str(round(total_amount, 2)))
 
             db.commit()
             db.refresh(order)
@@ -210,9 +216,10 @@ class ProcurementService:
         except HTTPException:
             db.rollback()
             raise
-        except Exception as exc:
+        except Exception:
             db.rollback()
-            raise HTTPException(status_code=500, detail=f"Failed to update purchase order: {exc}")
+            logger.exception("Failed updating purchase order id=%s business_id=%s", order_id, business_id)
+            raise HTTPException(status_code=500, detail="Failed to update purchase order.")
 
     @classmethod
     def delete_draft_purchase_order(cls, db: Session, business_id: int, order_id: int) -> None:
@@ -342,15 +349,18 @@ class ProcurementService:
                     )
 
                 # Concurrency-safe update preventing over-receipt
-                upd = db.execute(
-                    update(models.PurchaseOrderItem)
-                    .where(
-                        models.PurchaseOrderItem.id == order_item.id,
-                        models.PurchaseOrderItem.purchase_order_id == order.id,
-                        (models.PurchaseOrderItem.ordered_quantity - models.PurchaseOrderItem.received_quantity)
-                        >= qty_to_receive,
-                    )
-                    .values(received_quantity=models.PurchaseOrderItem.received_quantity + qty_to_receive)
+                upd = cast(
+                    CursorResult,
+                    db.execute(
+                        update(models.PurchaseOrderItem)
+                        .where(
+                            models.PurchaseOrderItem.id == order_item.id,
+                            models.PurchaseOrderItem.purchase_order_id == order.id,
+                            (models.PurchaseOrderItem.ordered_quantity - models.PurchaseOrderItem.received_quantity)
+                            >= qty_to_receive,
+                        )
+                        .values(received_quantity=models.PurchaseOrderItem.received_quantity + qty_to_receive)
+                    ),
                 )
                 if upd.rowcount == 0:
                     raise HTTPException(
@@ -421,10 +431,10 @@ class ProcurementService:
         except HTTPException:
             db.rollback()
             raise
-        except Exception as exc:
+        except Exception:
             db.rollback()
             logger.exception("Failed receiving goods po_id=%s", order_id)
-            raise HTTPException(status_code=500, detail=f"Failed to receive goods: {exc}")
+            raise HTTPException(status_code=500, detail="Failed to receive goods.")
 
     @classmethod
     def list_receipts(cls, db: Session, business_id: int, order_id: int) -> List[models.GoodsReceipt]:
@@ -472,13 +482,21 @@ class ProcurementService:
         return order
 
     @staticmethod
-    def _serialize_supplier_portal_order(db: Session, po: models.PurchaseOrder, buyer: models.Business) -> dict:
+    def _serialize_supplier_portal_order(
+        db: Session,
+        po: models.PurchaseOrder,
+        buyer: models.Business,
+        *,
+        prod_map: Optional[Dict[int, models.Product]] = None,
+        actions_override: Optional[List[models.PurchaseOrderSupplierAction]] = None,
+    ) -> dict:
         items = []
-        prod_ids = [item.product_id for item in po.items]
-        prod_map = {}
-        if prod_ids:
-            prods = db.query(models.Product).filter(models.Product.id.in_(prod_ids)).all()
-            prod_map = {p.id: p for p in prods}
+        if prod_map is None:
+            prod_ids = [item.product_id for item in po.items]
+            prod_map = {}
+            if prod_ids:
+                prods = db.query(models.Product).filter(models.Product.id.in_(prod_ids)).all()
+                prod_map = {p.id: p for p in prods}
         for item in po.items:
             p = prod_map.get(item.product_id)
             items.append(
@@ -492,12 +510,15 @@ class ProcurementService:
                     "unit_cost": float(item.unit_cost),
                 }
             )
-        actions = (
-            db.query(models.PurchaseOrderSupplierAction)
-            .filter(models.PurchaseOrderSupplierAction.purchase_order_id == po.id)
-            .order_by(models.PurchaseOrderSupplierAction.created_at.desc())
-            .all()
-        )
+        if actions_override is not None:
+            actions = sorted(actions_override, key=lambda a: a.created_at, reverse=True)
+        else:
+            actions = (
+                db.query(models.PurchaseOrderSupplierAction)
+                .filter(models.PurchaseOrderSupplierAction.purchase_order_id == po.id)
+                .order_by(models.PurchaseOrderSupplierAction.created_at.desc())
+                .all()
+            )
         return {
             "id": po.id,
             "order_number": po.order_number,
@@ -522,6 +543,10 @@ class ProcurementService:
             db.query(models.PurchaseOrder, models.Business)
             .join(models.Supplier, models.Supplier.id == models.PurchaseOrder.supplier_id)
             .join(models.Business, models.Business.id == models.PurchaseOrder.business_id)
+            .options(
+                selectinload(models.PurchaseOrder.items),
+                selectinload(models.PurchaseOrder.supplier_actions),
+            )
             .filter(
                 models.Supplier.linked_business_id == supplier_business_id,
                 models.PurchaseOrder.shared_with_supplier.is_(True),
@@ -529,7 +554,23 @@ class ProcurementService:
             .order_by(models.PurchaseOrder.order_date.desc(), models.PurchaseOrder.id.desc())
             .all()
         )
-        return [cls._serialize_supplier_portal_order(db, po, buyer) for po, buyer in rows]
+        all_prod_ids = {item.product_id for po, _ in rows for item in po.items}
+        prod_map: Dict[int, models.Product] = {}
+        if all_prod_ids:
+            prod_map = {
+                p.id: p
+                for p in db.query(models.Product).filter(models.Product.id.in_(all_prod_ids)).all()
+            }
+        return [
+            cls._serialize_supplier_portal_order(
+                db,
+                po,
+                buyer,
+                prod_map=prod_map,
+                actions_override=list(po.supplier_actions or ()),
+            )
+            for po, buyer in rows
+        ]
 
     @classmethod
     def get_supplier_portal_order(cls, db: Session, supplier_business_id: int, order_id: int) -> dict:
@@ -560,7 +601,7 @@ class ProcurementService:
         notes: Optional[str] = None,
     ) -> dict:
         allowed = {"ACKNOWLEDGED", "DISPATCHED", "ISSUE_REPORTED"}
-        norm = str(new_status or "").strip().upper()
+        norm = (new_status or "").strip().upper()
         if norm not in allowed:
             raise HTTPException(
                 status_code=400,

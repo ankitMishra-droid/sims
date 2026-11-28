@@ -1,13 +1,17 @@
 from typing import Annotated, Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from ..schemas import product_schema
 from ..database import get_db
-from ..dependencies.authorization import BusinessContext, require_business_roles
+from ..dependencies.authorization import BusinessContext, require_business_roles, require_business_types
 from ..services.product_service import ProductService
 
-router = APIRouter(prefix="/api/products", tags=["Products"])
+router = APIRouter(
+    prefix="/api/products",
+    tags=["Products"],
+    dependencies=[Depends(require_business_types(["retailer", "wholesaler"]))],
+)
 
 READ_ROLES = ["admin", "manager", "analyst", "staff"]
 WRITE_ROLES = ["admin", "manager"]
@@ -26,6 +30,31 @@ def create_product(
         payload=product,
     )
     return {"data": db_product, "message": "Product added successfully"}
+
+
+@router.post("/import-csv", response_model=product_schema.ProductCsvImportResponse)
+async def import_products_csv(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    ctx: BusinessContext = Depends(require_business_roles(WRITE_ROLES)),
+):
+    max_bytes = 5 * 1024 * 1024
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(status_code=413, detail="CSV upload exceeds 5 MB limit.")
+        chunks.append(chunk)
+    return ProductService.import_products_csv(
+        db=db,
+        business_id=ctx.business_id,
+        user_id=ctx.user.id,
+        raw_bytes=b"".join(chunks),
+    )
 
 
 @router.get("/", response_model=product_schema.ProductListResponse)

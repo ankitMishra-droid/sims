@@ -34,12 +34,13 @@ export default function DashboardPage() {
   const [pendingPOs, setPendingPOs] = useState([])
   const [recentSales, setRecentSales] = useState([])
   const [productsMap, setProductsMap] = useState({})
+  const [intelOverview, setIntelOverview] = useState(null)
 
   const loadDashboard = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      const [sum, sMetrics, pMetrics, mMetrics, lowList, pos, salesPage, prods] = await Promise.all([
+      const [sum, sMetrics, pMetrics, mMetrics, lowList, pos, salesPage, prods, intel] = await Promise.all([
         api.getDashboardSummary(),
         api.getSalesMetrics(),
         api.getPurchaseOrderMetrics(),
@@ -48,12 +49,14 @@ export default function DashboardPage() {
         api.getPurchaseOrders(),
         api.getSalesPage({ limit: 5, skip: 0 }),
         api.getProducts(),
+        api.getIntelligenceOverview(null, false).catch(() => null),
       ])
 
       setSummary(sum)
       setSalesMetrics(sMetrics)
       setPoMetrics(pMetrics)
       setMovementMetrics(mMetrics)
+      setIntelOverview(intel)
       setLowStock(Array.isArray(lowList) ? lowList.slice(0, 6) : [])
       setPendingPOs(
         (Array.isArray(pos) ? pos : [])
@@ -160,6 +163,33 @@ export default function DashboardPage() {
               onClick={() => navigate('/stock-alerts')}
             />
           </div>
+
+          {intelOverview && (
+            <section
+              className="section-card"
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}
+            >
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{t('intelligence.overviewTitle')}</div>
+                <div style={{ fontSize: '0.82rem', color: 'var(--erp-text-muted)', marginTop: '0.15rem' }}>
+                  {(intelOverview.stockout_risk_breakdown?.CRITICAL || 0) + (intelOverview.stockout_risk_breakdown?.HIGH || 0)} stockout risks
+                  {' • '}
+                  {intelOverview.reorder_candidates_count || 0} reorder suggestions
+                  {' • '}
+                  ₹{Number(intelOverview.overstock_capital_tied_up || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} overstock capital
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/intelligence')}>
+                  <span>{t('nav.intelligenceOverview')}</span>
+                  <ArrowRight size={13} />
+                </button>
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => navigate('/reorder-planner')}>
+                  <span>{t('nav.reorderSuggestions')}</span>
+                </button>
+              </div>
+            </section>
+          )}
 
           {/* Operational Tables */}
           <div className="dashboard-grid-2">

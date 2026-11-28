@@ -1,0 +1,16 @@
+{
+  "business_id": 1,
+  "product_id": 71,
+  "horizon_days": 30,
+  "model_version": "ml-v2",
+  "dataset_version": "2a5a1d0c68c54b25",
+  "champion_model": "ARIMA(1, 1, 1)",
+  "champion_display_name": "ARIMA",
+  "previous_champion_model": null,
+  "hierarchical_level": "LEVEL_1_TENANT_PRODUCT",
+  "training_start_date": "2024-06-01",
+  "training_end_date": "2026-11-14",
+  "backtest_start_date": "2026-10-18",
+  "backtest_end_date": "2026-11-28",
+  "expected_total_demand": 234.38
+}

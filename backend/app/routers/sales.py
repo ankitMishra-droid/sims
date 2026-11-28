@@ -4,10 +4,14 @@ from sqlalchemy.orm import Session
 
 from .. import schemas
 from ..database import get_db
-from ..dependencies.authorization import BusinessContext, require_business_roles
+from ..dependencies.authorization import BusinessContext, require_business_roles, require_business_types
 from ..services.sales_service import SalesService
 
-router = APIRouter(prefix="/api/sales", tags=["Sales"])
+router = APIRouter(
+    prefix="/api/sales",
+    tags=["Sales"],
+    dependencies=[Depends(require_business_types(["retailer", "wholesaler"]))],
+)
 
 READ_ROLES = ["admin", "manager", "analyst", "staff"]
 CREATE_ROLES = ["admin", "manager", "staff"]
@@ -25,7 +29,7 @@ def create_sale(
         db=db,
         business_id=ctx.business_id,
         user_id=ctx.user.id,
-        allow_negative_stock=bool(ctx.business.allow_negative_stock),
+        allow_negative_stock=ctx.business.allow_negative_stock,
         payload=sale,
         idempotency_key=idempotency_key,
     )

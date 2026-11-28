@@ -4,10 +4,14 @@ from sqlalchemy.orm import Session
 
 from .. import schemas
 from ..database import get_db
-from ..dependencies.authorization import BusinessContext, require_business_roles
+from ..dependencies.authorization import BusinessContext, require_business_roles, require_business_types
 from ..services.supplier_service import SupplierService
 
-router = APIRouter(prefix="/api/suppliers", tags=["Suppliers"])
+router = APIRouter(
+    prefix="/api/suppliers",
+    tags=["Suppliers"],
+    dependencies=[Depends(require_business_types(["retailer", "wholesaler"]))],
+)
 
 READ_ROLES = ["admin", "manager", "analyst", "staff"]
 WRITE_ROLES = ["admin", "manager"]

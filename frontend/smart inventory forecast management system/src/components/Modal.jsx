@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import { X } from 'lucide-react'
 
 export default function Modal({
@@ -9,21 +9,34 @@ export default function Modal({
   children,
   size = 'md',
 }) {
+  const titleId = useId()
+  const prevFocusedRef = useRef(null)
+  const onCloseRef = useRef(onClose)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose()
+      if (e.key === 'Escape' && isOpen && !e.defaultPrevented) {
+        onCloseRef.current()
       }
     }
-    if (isOpen) {
-      document.body.style.overflow = 'hidden'
-      window.addEventListener('keydown', handleKeyDown)
-    }
+    if (!isOpen) return undefined
+
+    prevFocusedRef.current = document.activeElement
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', handleKeyDown)
+
     return () => {
       document.body.style.overflow = ''
       window.removeEventListener('keydown', handleKeyDown)
+      if (prevFocusedRef.current && typeof prevFocusedRef.current.focus === 'function') {
+        prevFocusedRef.current.focus()
+      }
     }
-  }, [isOpen, onClose])
+  }, [isOpen])
 
   if (!isOpen) return null
 
@@ -34,10 +47,15 @@ export default function Modal({
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className={`modal-sheet ${size === 'lg' ? 'modal-lg' : ''}`}>
+      <div
+        className={`modal-sheet ${size === 'lg' ? 'modal-lg' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+      >
         <div className="modal-header">
           <div className="modal-title-group">
-            <h3>{title}</h3>
+            <h3 id={titleId}>{title}</h3>
             {subtitle && <p>{subtitle}</p>}
           </div>
           <button

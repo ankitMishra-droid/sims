@@ -438,6 +438,15 @@ def seed_database():
         print(f"   Total Active Products:  {total_prods}")
         print(f"   (New: {added_count}, Existing/Updated: {updated_count})")
 
+        # Seed deterministic 0-7 year historical datasets across dev/demo workspaces
+        try:
+            from app.ml.historical_seeder import seed_demo_historical_datasets, _print_report_table
+
+            hist_report = seed_demo_historical_datasets(db=db, target_business_ids=None, seed=42)
+            _print_report_table(hist_report)
+        except RuntimeError as guard_exc:
+            print(f"[INFO] Skipped demo historical seeding: {guard_exc}")
+
     except Exception as e:
         db.rollback()
         print(f"[ERROR] Error during seeding: {e}")

@@ -1,3 +1,5 @@
+import csv
+from io import StringIO
 import logging
 from typing import Dict, List, Optional, Tuple
 from fastapi import HTTPException
@@ -14,7 +16,7 @@ logger = logging.getLogger("sims.products")
 class ProductService:
     @staticmethod
     def _attach_position(product: models.Product, incoming: int) -> dict:
-        on_hand = int(product.current_stock or 0)
+        on_hand = product.current_stock or 0
         reserved = 0
         return {
             "id": product.id,
@@ -26,13 +28,19 @@ class ProductService:
             "cost_price": float(product.cost_price or 0.0),
             "selling_price": float(product.selling_price or 0.0),
             "current_stock": on_hand,
-            "reorder_level": int(product.reorder_level or 0),
+            "reorder_level": product.reorder_level or 0,
+            "min_order_quantity": product.min_order_quantity or 1,
+            "order_pack_size": product.order_pack_size or 1,
+            "max_stock_level": getattr(product, "max_stock_level", None),
+            "review_period_days": product.review_period_days or 7,
+            "service_level_target": float(getattr(product, "service_level_target", 0.95) or 0.95),
+            "initial_daily_demand": getattr(product, "initial_daily_demand", None),
             "supplier_id": product.supplier_id,
-            "is_active": bool(product.is_active),
-            "incoming_stock": int(incoming),
+            "is_active": product.is_active,
+            "incoming_stock": incoming,
             "reserved_stock": reserved,
             "available_stock": on_hand - reserved,
-            "inventory_position": on_hand + int(incoming) - reserved,
+            "inventory_position": on_hand + incoming - reserved,
         }
 
     @classmethod
@@ -154,10 +162,10 @@ class ProductService:
         except HTTPException:
             db.rollback()
             raise
-        except Exception as exc:
+        except Exception:
             db.rollback()
             logger.exception("Failed creating product business_id=%s", business_id)
-            raise HTTPException(status_code=500, detail=f"Failed to create product: {exc}")
+            raise HTTPException(status_code=500, detail="Failed to create product.")
 
     @classmethod
     def update_product(
@@ -214,10 +222,10 @@ class ProductService:
         except HTTPException:
             db.rollback()
             raise
-        except Exception as exc:
+        except Exception:
             db.rollback()
             logger.exception("Failed updating product id=%s", product_id)
-            raise HTTPException(status_code=500, detail=f"Failed to update product: {exc}")
+            raise HTTPException(status_code=500, detail="Failed to update product.")
 
     @classmethod
     def set_active_status(
@@ -243,3 +251,134 @@ class ProductService:
         db.refresh(product)
         incoming_map = InventoryService.get_incoming_stock_map(db, business_id, [product.id])
         return cls._attach_position(product, incoming_map.get(product.id, 0))
+
+    @classmethod
+    def import_products_csv(
+        cls,
+        db: Session,
+        business_id: int,
+        user_id: Optional[int],
+        raw_bytes: bytes,
+        *,
+        max_rows: int = 2000,
+    ) -> dict:
+        if not raw_bytes or not raw_bytes.strip():
+            raise HTTPException(status_code=400, detail="Uploaded CSV file is empty.")
+
+        text = None
+        for encoding in ("utf-8-sig", "utf-8", "latin-1"):
+            try:
+                text = raw_bytes.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        if text is None:
+            raise HTTPException(status_code=400, detail="Unable to decode CSV file text.")
+
+        reader = csv.DictReader(StringIO(text))
+        if not reader.fieldnames:
+            raise HTTPException(status_code=400, detail="CSV header row is missing.")
+
+        normalized_fields = [str(f or "").strip().lower() for f in reader.fieldnames]
+        if "sku" not in normalized_fields or "name" not in normalized_fields:
+            raise HTTPException(status_code=400, detail="CSV must contain required 'sku' and 'name' headers.")
+
+        existing_skus = {
+            row[0].strip().lower()
+            for row in db.query(models.Product.sku)
+            .filter(models.Product.business_id == business_id)
+            .all()
+            if row[0]
+        }
+        suppliers = (
+            db.query(models.Supplier)
+            .filter(models.Supplier.business_id == business_id)
+            .all()
+        )
+        sup_by_id = {s.id: s.id for s in suppliers}
+        sup_by_name = {s.name.strip().lower(): s.id for s in suppliers if s.name}
+
+        created_skus: List[str] = []
+        skipped_count = 0
+        errors: List[dict] = []
+
+        for idx, raw_row in enumerate(reader, start=2):
+            if idx - 1 > max_rows:
+                errors.append({"row": idx, "sku": None, "reason": f"Exceeded maximum {max_rows} rows per CSV upload."})
+                break
+
+            row = {str(k or "").strip().lower(): (str(v).strip() if v is not None else "") for k, v in raw_row.items()}
+            if not any(row.values()):
+                continue
+
+            sku = row.get("sku", "")
+            name = row.get("name", "")
+            if not sku or not name:
+                errors.append({"row": idx, "sku": sku or None, "reason": "Missing SKU or product name."})
+                continue
+
+            sku_key = sku.lower()
+            if sku_key in existing_skus:
+                skipped_count += 1
+                errors.append({"row": idx, "sku": sku, "reason": "Duplicate SKU already exists in workspace."})
+                continue
+
+            sup_id = None
+            raw_sup_id = row.get("supplier_id", "")
+            raw_sup_name = row.get("supplier_name", "")
+            if raw_sup_id:
+                try:
+                    cand = int(raw_sup_id)
+                    if cand not in sup_by_id:
+                        errors.append({"row": idx, "sku": sku, "reason": f"Supplier ID {cand} not found in workspace."})
+                        continue
+                    sup_id = cand
+                except ValueError:
+                    errors.append({"row": idx, "sku": sku, "reason": "Invalid supplier_id."})
+                    continue
+            elif raw_sup_name:
+                sup_id = sup_by_name.get(raw_sup_name.lower())
+                if sup_id is None:
+                    errors.append({"row": idx, "sku": sku, "reason": f"Supplier '{raw_sup_name}' not found."})
+                    continue
+
+            try:
+                payload = schemas.ProductCreate(
+                    sku=sku,
+                    name=name,
+                    category=row.get("category") or "General",
+                    unit=row.get("unit") or "piece",
+                    cost_price=float(row.get("cost_price") or 0),
+                    selling_price=float(row.get("selling_price") or 0),
+                    current_stock=int(float(row.get("current_stock") or 0)),
+                    reorder_level=int(float(row.get("reorder_level") or 10)),
+                    supplier_id=sup_id,
+                )
+            except Exception as exc:
+                errors.append({"row": idx, "sku": sku, "reason": str(exc).splitlines()[0][:180]})
+                continue
+
+            try:
+                with db.begin_nested():
+                    prod = models.Product(
+                        business_id=business_id,
+                        **payload.model_dump(),
+                        is_active=True,
+                    )
+                    db.add(prod)
+                    db.flush()
+                    stock_service.record_opening_stock(db, product=prod, user_id=user_id)
+                existing_skus.add(sku_key)
+                created_skus.append(payload.sku)
+            except Exception:
+                errors.append({"row": idx, "sku": sku, "reason": "Database constraint prevented importing row."})
+
+        db.commit()
+        return {
+            "created_count": len(created_skus),
+            "skipped_count": skipped_count,
+            "error_count": len(errors),
+            "created_skus": created_skus,
+            "errors": errors,
+            "message": f"Imported {len(created_skus)} products ({skipped_count} duplicate SKUs skipped).",
+        }

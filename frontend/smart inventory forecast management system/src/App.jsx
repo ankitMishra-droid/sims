@@ -43,10 +43,13 @@ const PurchaseOrdersPage = lazy(() => import('./pages/PurchaseOrdersPage'))
 const ReceiveOrderPage = lazy(() => import('./pages/ReceiveOrderPage'))
 
 // Intelligence
+const IntelligenceOverviewPage = lazy(() => import('./pages/IntelligenceOverviewPage'))
 const ReorderPlannerPage = lazy(() => import('./pages/ReorderPlannerPage'))
 const ForecastingPage = lazy(() => import('./pages/ForecastingPage'))
 const WhatIfSimulatorPage = lazy(() => import('./pages/WhatIfSimulatorPage'))
 const StockAlertsPage = lazy(() => import('./pages/StockAlertsPage'))
+const KnowledgeBasePage = lazy(() => import('./pages/KnowledgeBasePage'))
+const AIUsagePage = lazy(() => import('./pages/AIUsagePage'))
 
 // Reports
 const InventoryReportsPage = lazy(() => import('./pages/InventoryReportsPage'))
@@ -85,7 +88,7 @@ function AppContent() {
   useEffect(() => {
     if (!isAuthenticated) return
     let active = true
-    const hydrate = async () => {
+    const hydrate = async (attempt = 0) => {
       try {
         const [me, wsList] = await Promise.all([api.getMe(), api.getWorkspaces()])
         if (!active) return
@@ -98,8 +101,13 @@ function AppContent() {
         if (!active) return
         if (err.status === 401) {
           dispatch(logout())
-        } else {
-          dispatch(setWorkspaces([]))
+          return
+        }
+        const transient = !err.status || err.status >= 500
+        if (transient && attempt < 2) {
+          setTimeout(() => {
+            if (active) hydrate(attempt + 1)
+          }, attempt === 0 ? 700 : 1500)
         }
       }
     }
@@ -155,10 +163,13 @@ function AppContent() {
             <Route path="/receive-order" element={<ReceiveOrderPage />} />
 
             {/* Intelligence */}
+            <Route path="/intelligence" element={<IntelligenceOverviewPage />} />
             <Route path="/reorder-planner" element={<ReorderPlannerPage />} />
             <Route path="/forecasting" element={<ForecastingPage />} />
             <Route path="/simulator" element={<WhatIfSimulatorPage />} />
             <Route path="/stock-alerts" element={<StockAlertsPage />} />
+            <Route path="/ai-knowledge" element={<KnowledgeBasePage />} />
+            <Route path="/ai-usage" element={<AIUsagePage />} />
 
             {/* Reports */}
             <Route path="/reports/inventory" element={<InventoryReportsPage />} />

@@ -45,6 +45,7 @@ export default function LoginPage() {
       }
 
       let activeWs = null
+      let wsFetchFailed = false
       try {
         const wsList = await api.getWorkspaces()
         dispatch(setWorkspaces(wsList))
@@ -53,8 +54,12 @@ export default function LoginPage() {
           wsList.find((w) => w.business?.id === response.user?.active_business_id) ||
           wsList[0] ||
           null
-      } catch {
-        dispatch(setWorkspaces([]))
+      } catch (wsErr) {
+        if (wsErr?.status === 404) {
+          dispatch(setWorkspaces([]))
+        } else {
+          wsFetchFailed = true
+        }
       }
 
       dispatch(
@@ -64,7 +69,9 @@ export default function LoginPage() {
         })
       )
 
-      if (!activeWs || !response.user.active_business_id) {
+      if (wsFetchFailed) {
+        navigate(response.user.active_business_id ? from : '/workspaces', { replace: true })
+      } else if (!activeWs || !response.user.active_business_id) {
         navigate('/workspaces', { replace: true })
       } else if (!activeWs.business?.onboarding_completed) {
         navigate('/onboarding', { replace: true })
@@ -80,9 +87,14 @@ export default function LoginPage() {
     }
   }
 
+  const showDemoQuickFill =
+    import.meta.env.DEV &&
+    import.meta.env.VITE_ENABLE_DEMO_LOGIN === 'true' &&
+    Boolean(import.meta.env.VITE_DEMO_PASSWORD)
+
   const handleDemoLogin = (demoEmail) => {
     setEmail(demoEmail)
-    setPassword('SecretPassword123!')
+    setPassword(import.meta.env.VITE_DEMO_PASSWORD || '')
   }
 
   return (
@@ -177,20 +189,22 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div style={{ marginTop: '1.35rem', paddingTop: '1.15rem', borderTop: '1px solid var(--erp-border)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--erp-text-muted)', marginBottom: '0.6rem' }}>
-              <Sparkles size={14} style={{ color: 'var(--erp-brand)' }} />
-              <span>Quick Demo Credentials:</span>
+          {showDemoQuickFill && (
+            <div style={{ marginTop: '1.35rem', paddingTop: '1.15rem', borderTop: '1px solid var(--erp-border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--erp-text-muted)', marginBottom: '0.6rem' }}>
+                <Sparkles size={14} style={{ color: 'var(--erp-brand)' }} />
+                <span>Development Quick Demo Login:</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleDemoLogin('architect@stocksangati.com')}>
+                  Admin Demo
+                </button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleDemoLogin('direct@stocksangati.com')}>
+                  Manager Demo
+                </button>
+              </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleDemoLogin('architect@stocksangati.com')}>
-                Admin Demo
-              </button>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleDemoLogin('direct@stocksangati.com')}>
-                Manager Demo
-              </button>
-            </div>
-          </div>
+          )}
 
           <p style={{ textAlign: 'center', fontSize: '0.84rem', color: 'var(--erp-text-muted)', marginTop: '1.25rem' }}>
             Don&apos;t have an account?{' '}

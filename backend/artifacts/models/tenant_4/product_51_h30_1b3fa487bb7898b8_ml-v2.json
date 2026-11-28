@@ -1,0 +1,16 @@
+{
+  "business_id": 4,
+  "product_id": 51,
+  "horizon_days": 30,
+  "model_version": "ml-v2",
+  "dataset_version": "1b3fa487bb7898b8",
+  "champion_model": "ColdStartEstimator",
+  "champion_display_name": "Baseline (Insufficient Data)",
+  "previous_champion_model": null,
+  "hierarchical_level": "LEVEL_4_COLD_START",
+  "training_start_date": "2026-11-28",
+  "training_end_date": "2026-11-28",
+  "backtest_start_date": null,
+  "backtest_end_date": null,
+  "expected_total_demand": 0.0
+}

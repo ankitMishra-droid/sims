@@ -10,6 +10,12 @@ class ProductCreate(BaseModel):
     selling_price: float = Field(default=0.0, ge=0)
     current_stock: int = Field(default=0, ge=0)
     reorder_level: int = Field(default=10, ge=0)
+    min_order_quantity: int = Field(default=1, ge=1)
+    order_pack_size: int = Field(default=1, ge=1)
+    max_stock_level: int | None = Field(default=None, gt=0)
+    review_period_days: int = Field(default=7, ge=0, le=90)
+    service_level_target: float = Field(default=0.95, ge=0.5, le=0.9999)
+    initial_daily_demand: float | None = Field(default=None, ge=0)
     supplier_id: int | None = None
 
     @field_validator("sku", "name", mode="before")
@@ -45,6 +51,12 @@ class ProductUpdate(BaseModel):
     cost_price: float | None = Field(default=None, ge=0)
     selling_price: float | None = Field(default=None, ge=0)
     reorder_level: int | None = Field(default=None, ge=0)
+    min_order_quantity: int | None = Field(default=None, ge=1)
+    order_pack_size: int | None = Field(default=None, ge=1)
+    max_stock_level: int | None = Field(default=None, gt=0)
+    review_period_days: int | None = Field(default=None, ge=0, le=90)
+    service_level_target: float | None = Field(default=None, ge=0.5, le=0.9999)
+    initial_daily_demand: float | None = Field(default=None, ge=0)
     supplier_id: int | None = None
 
     @field_validator("category", mode="before")
@@ -70,8 +82,15 @@ class ProductOut(BaseModel):
     selling_price: float
     current_stock: int
     reorder_level: int
+    min_order_quantity: int = 1
+    order_pack_size: int = 1
+    max_stock_level: int | None = None
+    review_period_days: int = 7
+    service_level_target: float = 0.95
+    initial_daily_demand: float | None = None
     supplier_id: int | None
     is_active: bool
+    is_synthetic: bool = False
     incoming_stock: int = 0
     reserved_stock: int = 0
     available_stock: int | None = None
@@ -122,4 +141,19 @@ class ProductListResponse(BaseModel):
 
     data: list[ProductOut]
     total: int | None = None
+    message: str
+
+
+class ProductCsvImportRowError(BaseModel):
+    row: int
+    sku: str | None = None
+    reason: str
+
+
+class ProductCsvImportResponse(BaseModel):
+    created_count: int
+    skipped_count: int
+    error_count: int
+    created_skus: list[str]
+    errors: list[ProductCsvImportRowError]
     message: str

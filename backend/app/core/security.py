@@ -14,11 +14,35 @@ _BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 load_dotenv(_BACKEND_ROOT / ".env")
 load_dotenv(_BACKEND_ROOT.parent / ".env")
 
-_APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+_APP_ENV = (os.getenv("APP_ENV") or os.getenv("ENV") or "development").strip().lower()
 _ENV_SECRET = os.getenv("JWT_SECRET_KEY", "").strip()
+_WEAK_SECRET_MARKERS = (
+    "replace-with",
+    "replace_with",
+    "changeme",
+    "your-secret",
+    "your_secret",
+    "dev-only",
+    "example",
+    "placeholder",
+    "generate-a-secure",
+    "openssl",
+)
 
-if _APP_ENV == "production" and len(_ENV_SECRET) < 16:
-    raise RuntimeError("JWT_SECRET_KEY environment variable must be set (min 16 chars) in production.")
+
+def validate_jwt_secret(secret: str, *, app_env: str = _APP_ENV) -> str:
+    """Validate JWT signing secret strength strictly in production."""
+    cleaned = (secret or "").strip()
+    if app_env == "production":
+        lowered = cleaned.lower()
+        if len(cleaned) < 32 or any(marker in lowered for marker in _WEAK_SECRET_MARKERS):
+            raise RuntimeError(
+                "JWT_SECRET_KEY must be a non-placeholder secret of at least 32 characters in production."
+            )
+    return cleaned
+
+
+validate_jwt_secret(_ENV_SECRET, app_env=_APP_ENV)
 
 # In non-production dev/test environments without .env key, generate a fresh per-process ephemeral key
 SECRET_KEY = _ENV_SECRET if _ENV_SECRET else secrets.token_urlsafe(32)

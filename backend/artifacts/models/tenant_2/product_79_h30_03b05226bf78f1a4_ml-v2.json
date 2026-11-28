@@ -1,0 +1,16 @@
+{
+  "business_id": 2,
+  "product_id": 79,
+  "horizon_days": 30,
+  "model_version": "ml-v2",
+  "dataset_version": "03b05226bf78f1a4",
+  "champion_model": "XGBoost",
+  "champion_display_name": "XGBoost",
+  "previous_champion_model": null,
+  "hierarchical_level": "LEVEL_1_TENANT_PRODUCT",
+  "training_start_date": "2022-11-29",
+  "training_end_date": "2026-11-14",
+  "backtest_start_date": "2026-10-18",
+  "backtest_end_date": "2026-11-28",
+  "expected_total_demand": 170.71
+}

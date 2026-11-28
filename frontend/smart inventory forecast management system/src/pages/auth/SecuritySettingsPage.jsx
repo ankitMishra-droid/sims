@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
 import { Shield, Lock, LogOut, UserCheck } from 'lucide-react'
@@ -15,7 +15,14 @@ export default function SecuritySettingsPage() {
   const { user, refreshToken } = useSelector((state) => state.auth)
 
   const [profileName, setProfileName] = useState(user?.name || '')
+  const nameDirtyRef = useRef(false)
   const [savingProfile, setSavingProfile] = useState(false)
+
+  useEffect(() => {
+    if (!nameDirtyRef.current && user?.name) {
+      setProfileName(user.name)
+    }
+  }, [user?.name])
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -31,6 +38,7 @@ export default function SecuritySettingsPage() {
     setSavingProfile(true)
     try {
       const updated = await api.updateMe({ name: profileName.trim() })
+      nameDirtyRef.current = false
       dispatch(updateUserProfile(updated))
       dispatch(addToast({ type: 'success', message: 'Profile updated successfully.' }))
     } catch (err) {
@@ -108,8 +116,12 @@ export default function SecuritySettingsPage() {
                 id="sec-name"
                 type="text"
                 className="form-control"
+                placeholder={t('placeholders.personName', 'e.g. Priya Sharma')}
                 value={profileName}
-                onChange={(e) => setProfileName(e.target.value)}
+                onChange={(e) => {
+                  nameDirtyRef.current = true
+                  setProfileName(e.target.value)
+                }}
                 required
               />
             </div>
@@ -147,6 +159,7 @@ export default function SecuritySettingsPage() {
                 id="curr-pw"
                 type="password"
                 className="form-control"
+                placeholder={t('placeholders.currentPassword', 'Your current account password')}
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 required
@@ -160,11 +173,13 @@ export default function SecuritySettingsPage() {
                 id="new-pw"
                 type="password"
                 className="form-control"
+                placeholder={t('placeholders.newPassword', 'Minimum 6 characters')}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 minLength={6}
                 required
               />
+              <span className="form-hint">{t('placeholders.newPassword', 'Minimum 6 characters')}</span>
             </div>
             <div className="form-group">
               <label htmlFor="conf-pw" className="form-label">
@@ -174,6 +189,7 @@ export default function SecuritySettingsPage() {
                 id="conf-pw"
                 type="password"
                 className="form-control"
+                placeholder={t('placeholders.confirmPassword', 'Re-enter new password')}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 minLength={6}

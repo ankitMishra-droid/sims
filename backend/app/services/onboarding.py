@@ -24,7 +24,7 @@ OPTIONAL_STEPS = {6, 7, 8, 9}
 
 
 def applicable_steps_for_type(business_type: str) -> List[int]:
-    if str(business_type or "").lower() == "supplier":
+    if (business_type or "").lower() == "supplier":
         return list(SUPPLIER_STEPS)
     return list(RETAILER_STEPS)
 
@@ -55,7 +55,7 @@ class OnboardingService:
             "completed_steps": _load_json_list(progress.completed_steps_json),
             "skipped_steps": _load_json_list(progress.skipped_steps_json),
             "step_data": _load_json_dict(progress.step_data_json),
-            "is_completed": bool(progress.is_completed or business.onboarding_completed),
+            "is_completed": progress.is_completed or business.onboarding_completed,
             "applicable_steps": applicable_steps_for_type(business.business_type),
         }
 
@@ -76,7 +76,7 @@ class OnboardingService:
                 ),
                 skipped_steps_json="[]",
                 step_data_json="{}",
-                is_completed=bool(business.onboarding_completed),
+                is_completed=business.onboarding_completed,
             )
             db.add(progress)
             db.commit()
@@ -140,6 +140,12 @@ class OnboardingService:
                 btype = str(payload.get("business_type", "")).strip().lower()
                 if btype not in {"retailer", "wholesaler", "supplier"}:
                     raise HTTPException(status_code=400, detail="Select retailer, wholesaler, or supplier.")
+                current_btype = (business.business_type or "").strip().lower()
+                if btype != current_btype and ("supplier" in {btype, current_btype}):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Cannot switch between buyer and supplier workspace types.",
+                    )
                 business.business_type = btype
                 steps = applicable_steps_for_type(btype)
                 step_data["business_type"] = btype
